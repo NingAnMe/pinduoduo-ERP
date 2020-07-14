@@ -3,8 +3,7 @@
 # @Time    : 2020-07-04 19:47
 # @Author  : NingAnMe <ninganme@qq.com>
 import argparse
-import os
-from lib.database import *
+from lib.dbkucun import *
 import pandas as pd
 
 
@@ -50,21 +49,22 @@ def goods_qukucun_datetime(dt_s, dt_e):
     dingdanhaos = list()
     with session_scope() as session:
         orders = Order.query_fahuoshijian(session, datetime_start=dt_s, datetime_end=dt_e)
+        print(f'总订单数量：{len(orders)}')
         for order in orders:
             if order.shifouqukucun != '是':
                 dingdanhaos.append(order.dingdanhao)
-    print(f'有效订单数量：{len(dingdanhaos)}')
+    print(f'本次有效订单数量：{len(dingdanhaos)}')
     count = 0
     for dingdanhao in dingdanhaos:
         r = goods_qukucun(dingdanhao)
         if r:
             count += 1
-    print(f'处理订单数量： {count}')
+    print(f'本次处理订单数量： {count}')
 
 
 def order_add(order_file):
 
-    orders = Order.csv2order(order_file)[0:50]
+    orders = Order.csv2order(order_file)
     if len(orders) <= 0:
         print('没有有效的订单')
         return -1
@@ -115,13 +115,13 @@ if __name__ == '__main__':
 
     # ######################### 业务运行 ###################################
     parser = argparse.ArgumentParser(description='地外太阳能数据生产工具')
-    parser.add_argument('--goodfile', help='商品信息文件')
-    parser.add_argument('--orderfile', help='订单信息文件')
-    parser.add_argument('--qukucun', '-i', help='去库存')
+    parser.add_argument('--goodfile', '-g', help='商品信息文件')
+    parser.add_argument('--orderfile', '-o', help='订单信息文件')
+    parser.add_argument('--qukucun', '-q', help='去库存')
     parser.add_argument('--datetime_start', '-s', help='开始时间(北京时)，YYYYmmddHHMM(201901010000)')
     parser.add_argument('--datetime_end', '-e', help='结束时间（北京时），YYYYmmddHHMM(201901010000)')
-    parser.add_argument('--DEBUG', help='是否DEBUG', default=False)
-    parser.add_argument('--TEST', help='是否TEST', default=False)
+    parser.add_argument('--debug', help='是否DEBUG', default=False)
+    parser.add_argument('--test', help='是否TEST', default=False)
     args = parser.parse_args()
 
     if args.goodfile is not None:

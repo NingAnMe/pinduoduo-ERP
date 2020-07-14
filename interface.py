@@ -10,7 +10,7 @@ SQLAlchemy查询对象转字典：https://www.cnblogs.com/sanduzxcvbnm/p/1022071
 from flask import Flask, request
 from flask_restful import Resource, Api
 from flask_cors import CORS
-from lib.database import *
+from lib.dbkucun import *
 
 app = Flask(__name__)
 CORS(app)
