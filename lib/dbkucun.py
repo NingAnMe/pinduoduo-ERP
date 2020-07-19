@@ -26,10 +26,12 @@ class Goods(Base):
     goods_relate_sku = relationship('Sku', backref='sku_relate_goods')
 
     @classmethod
-    def add(cls, session, goods):
-        goods = Goods(**goods)
-        goods.gengxinshijian = datetime.now()
-        return session.add(goods)
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data_ = Goods(**data)
+            session.add(data_)
+        elif isinstance(data, list):
+            session.bulk_insert_mappings(Goods, data)
 
     @classmethod
     def query(cls, session):
@@ -54,10 +56,12 @@ class Sku(Base):
     goods_bianma = Column(String, ForeignKey("goods.bianma"))
 
     @classmethod
-    def add(cls, session, sku):
-        sku = Sku(**sku)
-        sku.gengxinshijian = datetime.now()
-        return session.add(sku)
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data_ = Sku(**data)
+            session.add(data_)
+        elif isinstance(data, list):
+            session.bulk_insert_mappings(Sku, data)
 
     @classmethod
     def query(cls, session):
@@ -143,7 +147,7 @@ class Order(Base):
             fahuoshijian = row['发货时间']
             if len(fahuoshijian) <= 1:
                 continue
-            order = Order(
+            order = dict(
                 shangpin=row['商品'],
                 dingdanhao=row['订单号'],
                 dingdanzhuangtai=row['订单状态'],
@@ -160,8 +164,8 @@ class Order(Base):
                 shangpinid=row['商品id'],
                 shangpinguige=row['商品规格'],
                 yangshiid=row['样式ID'],
-                skubianma=row['商家编码-SKU维度'],
-                shangpinbianma=row['商家编码-商品维度'],
+                skubianma=row['商家编码-SKU维度'].strip(),
+                shangpinbianma=row['商家编码-商品维度'].strip(),
 
                 shangjiabeizhu=row['商家备注'],
                 maijialiuyan=row['买家留言'],
@@ -186,8 +190,12 @@ class Order(Base):
         return order_list
 
     @classmethod
-    def add(cls, session, orders):
-        return session.add_all(orders)
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data_ = Order(**data)
+            session.add(data_)
+        elif isinstance(data, list):
+            session.bulk_insert_mappings(Order, data)
 
     @classmethod
     def query_fahuoshijian(cls, session, datetime_start, datetime_end):
@@ -212,10 +220,10 @@ def test_dingdanruku():
 
     # 剔除已经录入的订单
     # 找到时间范围
-    datetime_start = datetime_end = orders[0].fahuoshijian
+    datetime_start = datetime_end = orders[0]["fahuoshijian"]
 
     for order in orders:
-        fahuoshijian = order.fahuoshijian
+        fahuoshijian = order["fahuoshijian"]
         if fahuoshijian < datetime_start:
             datetime_start = fahuoshijian
         if fahuoshijian > datetime_end:
@@ -233,15 +241,15 @@ def test_dingdanruku():
 
     orders_filter = list()
     for order in orders:
-        if order.dingdanhao not in dingdanhao_db:
+        if order["dingdanhao"] not in dingdanhao_db:
             orders_filter.append(order)
 
     print(f'有效订单数量：{len(orders_filter)}')
 
     # 将过滤以后的订单入库
     with session_scope() as session:
-        result = Order.add(session, orders_filter)
-        print(result)
+        Order.add(session, orders_filter)
+        print("入库成功")
 
 
 def test_shangpin_ruku():
