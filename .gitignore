@@ -132,3 +132,5 @@ aid/pdd.db
 
 test/
 test.py
+
+json_data.py
