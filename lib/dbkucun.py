@@ -23,8 +23,6 @@ class Goods(Base):
     beizhu = Column(String)
     gengxinshijian = Column(DateTime)
 
-    goods_relate_sku = relationship('Sku', backref='sku_relate_goods')
-
     @classmethod
     def add(cls, session, data):
         if isinstance(data, dict):
@@ -45,16 +43,18 @@ class Goods(Base):
 class Sku(Base):
     __tablename__ = 'sku'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    bianma = Column(String, nullable=False)
+    bianma = Column(String, primary_key=True)
     mingcheng = Column(String)
     danwei = Column(String, default='件')
-    shuliang = Column(Integer, nullable=False)
     chengben = Column(Float, default=0)
-    goods_bianma = Column(String, ForeignKey("goods.bianma"))
     gengxinshijian = Column(DateTime)
 
     beizhu = Column(String)
+
+    sku_relate_goods = relationship('Goods',
+                                    secondary='relateSkuGoods',
+                                    backref='goods_relate_sku',
+                                    )
 
     @classmethod
     def add(cls, session, data):
@@ -71,6 +71,17 @@ class Sku(Base):
     @classmethod
     def query_bianma(cls, session, bianmas):
         return session.query(Sku).filter(Sku.bianma == bianmas.strip()).all()
+
+
+class RelateSkuGoods(Base):
+    __tablename__ = 'relateSkuGoods'
+
+    id = Column('id', Integer, primary_key=True, autoincrement=True)
+    sku_bianma = Column(String, ForeignKey('sku.bianma'))
+    goods_bianma = Column(String, ForeignKey('goods.bianma'))
+    shuliang = Column(Integer, nullable=False)
+    sku = relationship("Sku", backref="goods")
+    goods = relationship("Goods", backref="sku")
 
 
 class Order(Base):
@@ -309,3 +320,17 @@ if __name__ == '__main__':
     # test_shangpin_ruku()
     # test_sku_ruku()
     # test_goods_get_to_dict()
+    with session_scope() as session:
+        s = session.query(Sku).first()
+        print(s.mingcheng)
+        gs = s.sku_relate_goods
+        print(gs)
+        for i in gs:
+            print(i.mingcheng, i.shuliang)
+        g = session.query(Goods).first()
+        print(g.mingcheng)
+        ss = g.goods_relate_sku
+        print(ss)
+        ss = g.sku
+        for i in ss:
+            print(i.id, i.sku.mingcheng)
