@@ -50,10 +50,11 @@ class Sku(Base):
     mingcheng = Column(String)
     danwei = Column(String, default='件')
     shuliang = Column(Integer, nullable=False)
-    beizhu = Column(String)
+    chengben = Column(Float, default=0)
+    goods_bianma = Column(String, ForeignKey("goods.bianma"))
     gengxinshijian = Column(DateTime)
 
-    goods_bianma = Column(String, ForeignKey("goods.bianma"))
+    beizhu = Column(String)
 
     @classmethod
     def add(cls, session, data):
@@ -303,7 +304,8 @@ def test_goods_get_to_dict():
 
 
 if __name__ == '__main__':
+    Base.metadata.create_all(engine)
     # test_dingdanruku()
     # test_shangpin_ruku()
     # test_sku_ruku()
-    test_goods_get_to_dict()
+    # test_goods_get_to_dict()

@@ -36,14 +36,19 @@ class PddGoodsDetail(Base):
 
     goodsId = Column(String, ForeignKey("pddGoods.id"))
     goodsName = Column(String)  # 名称
-    payOrdrCnt = Column(Integer)  # 订单数量
+
+    payOrdrGoodsQty = Column(Integer)  # 支付件数
     paidOrdrCnt = Column(Integer)  # 付费订单数量
     freeOrdrCnt = Column(Integer)  # 免费订单数量
+
     goodsUv = Column(Integer)  # 访客数
     goodsPv = Column(Integer)  # 浏览量
-    payOrdrGoodsQty = Column(Integer)  # 支付件数
     goodsVcr = Column(Float)  # 转化率
+
     payOrdrAmt = Column(Float)  # 支付金额
+    netProfit = Column(Float)  # 净利润
+
+    payOrdrCnt = Column(Integer)  # 订单数量
     payOrdrUsrCnt = Column(Integer)  # 支付买家数
     cfmOrdrCnt = Column(Integer)  # 成团订单数
     cfmOrdrGoodsQty = Column(Integer)  # 成团件数
@@ -127,6 +132,8 @@ class AdUnit(Base):
     mallFavNum = Column(Integer, default=0)  # 店铺关注量
     goodsFavNum = Column(Integer, default=0)  # 商品收藏量
 
+    adId = Column(String)  # 广告ID
+
     @classmethod
     def str2datetime(cls, dt):
         return datetime.strptime(dt, '%Y-%m-%d')
@@ -140,7 +147,7 @@ class AdUnit(Base):
         if not data_json['success']:
             return
         key_list = {"goodsId", "statDate", "goodsName", "impression", "click", "ctr", "spend", "roi",
-                    "orderNum", "cpc", "cvr", "cpm", "mallFavNum", "goodsFavNum"}
+                    "orderNum", "cpc", "cvr", "cpm", "mallFavNum", "goodsFavNum", "adId"}
         goods_detail_list = list()
         for detail in data_json['result']:
             goods_detail = dict()
@@ -200,7 +207,7 @@ def test_AdUnit_search():
                 ids.add(row.goodsId)
         datas_filter = list()
         for i in datas:
-            if str(i['goodsId']) not in ids:
+            if str(i['adId']) not in ids:
                 datas_filter.append(i)
         AdUnit.add(session, datas_filter)
         print(f"ad_unit_add Success: {ad_type} 处理数据量：{len(datas_filter)}")
@@ -220,7 +227,7 @@ def test_AdUnit_scene():
                 ids.add(row.goodsId)
         datas_filter = list()
         for i in datas:
-            if str(i['goodsId']) not in ids:
+            if str(i['adId']) not in ids:
                 datas_filter.append(i)
         AdUnit.add(session, datas_filter)
         print(f"ad_unit_add Success: {ad_type} 处理数据量：{len(datas_filter)}")
@@ -233,7 +240,3 @@ def test_paid_free_order():
 
 if __name__ == '__main__':
     Base.metadata.create_all(engine)
-    test_PddGoodsDetail()
-    test_AdUnit_search()
-    test_AdUnit_scene()
-    test_paid_free_order()

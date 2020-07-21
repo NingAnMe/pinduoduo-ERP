@@ -132,7 +132,7 @@ def ad_unit_add(json_data, dt, ad_type):
                 ids.add(row.goodsId)
         datas_filter = list()
         for i in datas:
-            if str(i['goodsId']) not in ids:
+            if str(i['adId']) not in ids:
                 datas_filter.append(i)
         AdUnit.add(session, datas_filter)
         print(f"ad_unit_add Success: {ad_type} 处理数据量：{len(datas_filter)}")
