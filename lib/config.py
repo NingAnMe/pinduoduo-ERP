@@ -6,3 +6,5 @@
 from lib.path import AID_PATH
 
 sqlite_db = r'sqlite:///{}\pdd.db'.format(AID_PATH)
+order_file_path = r'C:\D\OneDrive\Business\库存处理订单'
+json_file_path = r'C:\D\OneDrive\Business\json数据'

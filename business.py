@@ -5,10 +5,10 @@
 import argparse
 from dateutil.relativedelta import relativedelta
 
+from lib.config import *
 from lib.dbkucun import *
 from lib.dbyingxiao import *
 from lib.path import *
-from json_data import str2json
 
 
 def goods_add(goods_file):
@@ -78,33 +78,17 @@ def goods_qukucun(dingdanhao):
             return
 
         skubianma = order.skubianma
-        skus = Sku.query_bianma(session, skubianma)
-        if skus is None:
+        sku = Sku.query_bianma(session, skubianma)
+        if sku is None:
+            print(f"没有对应的sku：{skubianma}")
             return
 
         # 获取商品和商品需要减少的数量
-        shangpinjianshu = order.shangpinshuliang
-        for sku in skus:
-            sku.sku_relate_goods.shuliang = sku.sku_relate_goods.shuliang - sku.shuliang * shangpinjianshu
+        jianshu = order.shangpinshuliang
+        for goods in sku.goods:
+            goods.goods.shuliang -= goods.shuliang * jianshu
         order.shifouqukucun = '是'
         return True
-
-
-def goods_qukucun_datetime(dt_s, dt_e):
-    dingdanhaos = list()
-    with session_scope() as session:
-        orders = Order.query_fahuoshijian(session, datetime_start=dt_s, datetime_end=dt_e)
-        print(f'总订单数量：{len(orders)}')
-        for order in orders:
-            if order.shifouqukucun != '是':
-                dingdanhaos.append(order.dingdanhao)
-    print(f'本次有效订单数量：{len(dingdanhaos)}')
-    count = 0
-    for dingdanhao in dingdanhaos:
-        r = goods_qukucun(dingdanhao)
-        if r:
-            count += 1
-    print(f'本次处理订单数量： {count}')
 
 
 def goods_detail_add(json_data, dt):
@@ -129,7 +113,7 @@ def ad_unit_add(json_data, dt, ad_type):
         ids = set()
         for row in result:
             if row.adType == ad_type:
-                ids.add(row.goodsId)
+                ids.add(row.adId)
         datas_filter = list()
         for i in datas:
             if str(i['adId']) not in ids:
@@ -142,85 +126,124 @@ def deal_paid_free_order(dt):
     PddGoodsDetail.paid_free_order(dt)
 
 
-def auto_business(dt_str):
-    # str2json
-    str2json()
+def goods_qukucun_datetime(dt_s, dt_e):
+    if dt_s == dt_e:
+        dt_e = dt_e + relativedelta(days=1) - relativedelta(minutes=1)
+    dingdanhaos = list()
+    with session_scope() as session:
+        orders = Order.query_fahuoshijian(session, datetime_start=dt_s, datetime_end=dt_e)
+        print(f'总订单数量：{len(orders)}')
+        for order in orders:
+            if order.shifouqukucun != '是':
+                dingdanhaos.append(order.dingdanhao)
+    print(f'本次有效订单数量：{len(dingdanhaos)}')
+    count = 0
+    for dingdanhao in dingdanhaos:
+        r = goods_qukucun(dingdanhao)
+        if r:
+            count += 1
+    print(f'本次处理订单数量： {count}')
 
-    dt = datetime.strptime(dt_str, "%Y-%m-%d")
-    # 订单入库
-    order_file_path = kucun_order_path
+
+def order_file_ruku_datetime(dt_s, dt_e):
+    print(dt_s, dt_e)
     order_files = os.listdir(order_file_path)
-    order_file = None
-    for i in order_files:
-        if ("orders_export" + dt_str) in i:
-            order_file = os.path.join(order_file_path, i)
-    if order_file is not None:
-        print(f'订单文件：{order_file}')
-        order_add(order_file)
+    order_files.sort()
+    while dt_s <= dt_e:
+        dt_tmp = dt_s
+        dt_str = dt_tmp.strftime('%Y-%m-%d')
+        # 处理订单并入库
+        order_file = None
+        for filename in order_files:
+            if ("orders_export" + dt_str) in filename:
+                order_file = os.path.join(order_file_path, filename)
+        if order_file is not None:
+            print(f'订单文件：{order_file}')
+            order_add(order_file)
+        dt_s += relativedelta(days=1)
 
-    # 去库存
-    dt_start = dt
-    dt_end = dt + relativedelta(days=1) - relativedelta(minutes=1)
-    goods_qukucun_datetime(dt_start, dt_end)
 
-    # 添加营销数据
+def detail_file_ruku_datetime(dt_s, dt_e):
     json_data_files = os.listdir(json_file_path)
-    for filename in json_data_files:
-        if dt_str in filename:
-            json_data_file = os.path.join(json_file_path, filename)
-            # 添加商品销售数据
-            if 'detail' in filename:
-                goods_detail_add(json_data_file, dt)
+    json_data_files.sort()
 
-            # 添加搜索推广数据
-            if 'search' in filename:
-                ad_unit_add(json_data_file, dt, 'search')
+    while dt_s <= dt_e:
+        dt_tmp = dt_s
+        dt_str = dt_tmp.strftime('%Y-%m-%d')
+        dt = datetime.strptime(dt_str, "%Y-%m-%d")
 
-            # 添加场景推广数据
-            if 'scene' in filename:
-                ad_unit_add(json_data_file, dt, 'scene')
+        # 添加营销数据
+        for filename in json_data_files:
+            if dt_str in filename:
+                json_data_file = os.path.join(json_file_path, filename)
+                # 添加商品销售数据
+                if 'detail' in filename:
+                    goods_detail_add(json_data_file, dt)
 
-    # 处理付费订单和免费数量
-    deal_paid_free_order(dt)
+                # 添加搜索推广数据
+                if 'search' in filename:
+                    ad_unit_add(json_data_file, dt, 'search')
+
+                # 添加场景推广数据
+                if 'scene' in filename:
+                    ad_unit_add(json_data_file, dt, 'scene')
+
+        # 处理付费订单和免费数量
+        deal_paid_free_order(dt)
+        dt_s += relativedelta(days=1)
+
+
+def set_all_order_qu_ku_cun():
+    # 将所有订单的状态设置为去库存
+    with session_scope() as session:
+        orders = session.query(Order).filter(Order.shifouqukucun != '是').all()
+        for order in orders:
+            order.shifouqukucun = '是'
+        print(f"set_all_order_qu_ku_cun Success: 处理数据量：{len(orders)}")
 
 
 if __name__ == '__main__':
-    # from lib.path import TEST_PATH
-    # goods_file = os.path.join(TEST_PATH, 'goods.csv')
-    # goods_add(goods_file)
-
-    # order_file = os.path.join(TEST_PATH, 'orders.csv')
-    # order_add(order_file)
-
-    # goods_qukucun(['200705-660621394700582'])
-
     # ######################### 业务运行 ###################################
     parser = argparse.ArgumentParser(description='地外太阳能数据生产工具')
-    parser.add_argument('--goodfile', '-g', help='商品信息文件')
-    parser.add_argument('--orderfile', '-o', help='订单信息文件')
-    parser.add_argument('--qukucun', '-q', help='去库存')
-    parser.add_argument('--detail', help='去库存')
-    parser.add_argument('--search', help='去库存')
-    parser.add_argument('--scene', help='去库存')
-    parser.add_argument('--datetime', help='开始时间(北京时)，YYYY-mm-dd(2019-01-01)')
-    parser.add_argument('--datetime_start', '-s', help='开始时间(北京时)，YYYYmmddHHMM(201901010000)')
-    parser.add_argument('--datetime_end', '-e', help='结束时间（北京时），YYYYmmddHHMM(201901010000)')
+    parser.add_argument('--addOrder', help='处理订单文件，数据入库')
+    parser.add_argument('--quKuCun', help='销库存')
+    parser.add_argument('--addGoodsDetail', help='处理营销Json文件，数据入库')
+    parser.add_argument('--date', help='开始时间(北京时)，YYYY-mm-dd(2019-01-01)')
+    parser.add_argument('--dateStart', '-s', help='开始时间(北京时)，YYYY-mm-dd(2019-01-01)')
+    parser.add_argument('--dateEnd', '-e', help='结束时间（北京时），YYYY-mm-dd(2019-01-01)')
+    parser.add_argument('--setAllOrderQuKuCun', help='将所有的订单状态设置为去库存', default=False)
     parser.add_argument('--debug', help='是否DEBUG', default=False)
     parser.add_argument('--test', help='是否TEST', default=False)
     args = parser.parse_args()
 
-    if args.goodfile is not None:
-        print(f"<<< {args.goodfile}")
-        goods_add(args.goodfile)
+    datetime_ = None
+    if args.date is not None:
+        datetime_ = datetime.strptime(args.date, '%Y-%m-%d')
 
-    if args.orderfile is not None:
-        print(f"<<< {args.orderfile}")
-        order_add(args.orderfile)
+    if args.date is not None and args.dateStart is None:
+        args.dateStart = args.date
 
-    if args.datetime_start is not None and args.datetime_end is not None:
-        datetime_s = datetime.strptime(args.datetime_start, '%Y%m%d%H%M')
-        datetime_e = datetime.strptime(args.datetime_end, '%Y%m%d%H%M')
+    datetime_s = datetime_e = None
+    if args.dateStart is not None:
+        datetime_s = datetime.strptime(args.dateStart, '%Y-%m-%d')
+        if args.dateEnd is not None:
+            datetime_e = datetime.strptime(args.dateEnd, '%Y-%m-%d')
+        else:
+            datetime_e = datetime_s
+
+    # 处理订单文件
+    if args.addOrder is not None:
+        print(f'addOrder: {args.addOrder}')
+        order_file_ruku_datetime(datetime_s, datetime_e)
+
+    # 销库存
+    if args.quKuCun is not None:
         goods_qukucun_datetime(datetime_s, datetime_e)
 
-    if args.datetime is not None:
-        auto_business(args.datetime)
+    # 营销数据入库且处理
+    if args.addGoodsDetail is not None:
+        detail_file_ruku_datetime(datetime_s, datetime_e)
+
+    # 将所有订单的状态设置为已经去库存的状态
+    if args.setAllOrderQuKuCun:
+        set_all_order_qu_ku_cun()

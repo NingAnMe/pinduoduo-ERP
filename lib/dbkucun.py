@@ -70,7 +70,7 @@ class Sku(Base):
 
     @classmethod
     def query_bianma(cls, session, bianmas):
-        return session.query(Sku).filter(Sku.bianma == bianmas.strip()).all()
+        return session.query(Sku).filter(Sku.bianma == bianmas.strip()).first()
 
 
 class RelateSkuGoods(Base):
@@ -320,17 +320,14 @@ if __name__ == '__main__':
     # test_shangpin_ruku()
     # test_sku_ruku()
     # test_goods_get_to_dict()
-    with session_scope() as session:
-        s = session.query(Sku).first()
-        print(s.mingcheng)
-        gs = s.sku_relate_goods
-        print(gs)
-        for i in gs:
-            print(i.mingcheng, i.shuliang)
-        g = session.query(Goods).first()
-        print(g.mingcheng)
-        ss = g.goods_relate_sku
-        print(ss)
-        ss = g.sku
-        for i in ss:
-            print(i.id, i.sku.mingcheng)
+    # with session_scope() as session:
+    #     s = session.query(Sku).all()[6]
+    #     print(s.mingcheng)
+    #     gs = s.sku_relate_goods
+    #     print(gs)
+    #     for i in gs:
+    #         print(i.mingcheng, i.shuliang)
+    #     gs = s.goods
+    #     for i in gs:
+    #         print(i.id, i.shuliang, i.goods.mingcheng, i.goods.shuliang)
+

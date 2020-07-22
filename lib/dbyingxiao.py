@@ -38,7 +38,7 @@ class PddGoodsDetail(Base):
     goodsName = Column(String)  # 名称
 
     payOrdrGoodsQty = Column(Integer)  # 支付件数
-    paidOrdrCnt = Column(Integer)  # 付费订单数量
+    paidOrdrCnt = Column(Integer, default=0)  # 付费订单数量
     freeOrdrCnt = Column(Integer)  # 免费订单数量
 
     goodsUv = Column(Integer)  # 访客数
@@ -104,11 +104,10 @@ class PddGoodsDetail(Base):
             result = PddGoodsDetail.query_datetime(session, dt)
             count = 0
             for row in result:
-                # if row.goodsId in goods_paid_order and row.paidOrdrCnt is None and row.freeOrdrCnt is None:
                 if row.goodsId in goods_paid_order:
                     row.paidOrdrCnt = goods_paid_order[row.goodsId]
-                    row.freeOrdrCnt = row.payOrdrGoodsQty - row.paidOrdrCnt
-                    count += 1
+                row.freeOrdrCnt = row.payOrdrGoodsQty - row.paidOrdrCnt
+                count += 1
             print(f'paid_free_order Success: 处理数据量：{count}')
 
 

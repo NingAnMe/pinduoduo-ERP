@@ -7,6 +7,8 @@
 字段设置默认值：https://www.jianshu.com/p/6d3ec5851f3a
 一对多：https://blog.csdn.net/chenmozhe22/article/details/95607372
 批量更新：https://blog.csdn.net/aaaaaaazhaofeng/article/details/99670667
+多对多中间表添加额外信息：https://docs.sqlalchemy.org/en/13/orm/basic_relationships.html#association-object
+    https://segmentfault.com/q/1010000022270316/a-1020000022274515
 """
 
 from contextlib import contextmanager
