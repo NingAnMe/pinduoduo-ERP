@@ -124,10 +124,7 @@ class PddOrderApi(Resource):
         """
         parser = reqparse.RequestParser()
         parser.add_argument('orderFile', type=FileStorage, location='files')
-        args = parser.parse_args()
-        print(args)
         order_file = parser.parse_args().get('orderFile')
-        print(order_file)
         orders = PddOrder.csv2order(order_file)
         if len(orders) <= 0:
             print('没有有效的订单')
@@ -167,7 +164,7 @@ class PddOrderApi(Resource):
         # 将过滤以后的订单入库
         with session_scope() as session:
             PddOrder.add(session, orders_filter)
-            print("success")
+            return std_success
 
 
 class GoodsApi(Resource):
