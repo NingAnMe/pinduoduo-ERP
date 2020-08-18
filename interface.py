@@ -273,6 +273,22 @@ class GoodsDetailApi(Resource):
         return std_success
 
 
+class GoodsGengXinShiJian(Resource):
+    def put(self):
+        data = request.args
+        dt = datetime.strptime(data['datetime'] + ' 23:59:59', "%Y-%m-%d %H:%M:%S")
+        with session_scope() as session:
+            goods_result = Goods.query(session)
+            goods_list = list()
+            for goods in goods_result:
+                goods_list.append({
+                    'bianma': goods.bianma,
+                    'gengxinshijian': dt
+                })
+            Goods.update(session, goods_list)
+            return std_success
+
+
 class GoodsKuCunApi(Resource):
     def put(self):
         data = request.json
@@ -347,6 +363,7 @@ api.add_resource(PddSkuApi, '/erp/pddSku')
 api.add_resource(PddOrderApi, '/erp/pddOrder')
 api.add_resource(GoodsApi, '/erp/goods')
 api.add_resource(GoodsDetailApi, '/erp/goodsDetail')
+api.add_resource(GoodsGengXinShiJian, '/erp/GengXinShiJian')
 api.add_resource(GoodsKuCunApi, '/erp/goodsKuCun')
 api.add_resource(RelateSkuGoodsApi, '/erp/relateSkuGoods')
 
