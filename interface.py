@@ -179,9 +179,8 @@ class GoodsApi(Resource):
             if pdd_sku_outer_id:
                 content = list()
                 results = PddSku.query_pdd_sku_outer_id(session, pdd_sku_outer_id)
-                print(results)
                 if results is not None:
-                    for rs_sku_goods in results[0].goods_rs:
+                    for rs_sku_goods in results.goods_rs:
                         data = rs_sku_goods.goods_rs.to_dict()
                         data['shuliang'] = rs_sku_goods.shuliang
                         data['sku_bianma'] = rs_sku_goods.sku_bianma
