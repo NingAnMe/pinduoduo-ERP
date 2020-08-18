@@ -131,6 +131,6 @@ dmypy.json
 aid/pdd.db
 
 test/
-test.py
+test.json
 
 json_data.py

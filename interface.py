@@ -6,11 +6,14 @@
 """
 接口跨域：https://my.oschina.net/ykbj/blog/2086068
 SQLAlchemy查询对象转字典：https://www.cnblogs.com/sanduzxcvbnm/p/10220718.html
+JSON数据验证：https://pydantic-docs.helpmanual.io/
 """
+from dateutil.relativedelta import relativedelta
 from flask import Flask, request
-from flask_restful import Resource, Api
+from flask_restful import Resource, Api, reqparse
 from flask_cors import CORS
-from lib.dbkucun import *
+from werkzeug.datastructures import FileStorage
+from lib.dbyingxiao import *
 
 app = Flask(__name__)
 CORS(app)
@@ -29,34 +32,21 @@ std_success = {
 }
 
 
-class GoodsApi(Resource):
-    def get(self):
-        with session_scope() as session:
-            results = Goods.query(session)
-            if results is not None:
-                content = [i.to_dict() for i in results]
-                for i in content:
-                    i['gengxinshijian'] = i['gengxinshijian'].strftime('%Y-%m-%d %H:%M:%S')
-                return {
-                    'content': content,
-                    'message': '请求成功',
-                    'code': 0
-                }
-        return std_error
-
-
-class SkuApi(Resource):
+class PddGoodsApi(Resource):
 
     def get(self):
         with session_scope() as session:
-            results = Sku.query(session)
-            content = [i.to_dict() for i in results]
-            for i in content:
-                i['gengxinshijian'] = i['gengxinshijian'].strftime('%Y-%m-%d %H:%M:%S')
+            pdd_goods_outer_id = request.args.get('pddGoodsOuterId')
+            if pdd_goods_outer_id is not None:
+                results = PddGoods.query_pdd_goods_outer_id(session, pdd_goods_outer_id)
+            else:
+                results = PddGoods.query(session)
             if results is not None:
-                content = [i.to_dict() for i in results]
-                for i in content:
-                    i['gengxinshijian'] = i['gengxinshijian'].strftime('%Y-%m-%d %H:%M:%S')
+                content = list()
+                for row in results:
+                    pdd_goods_data = row.to_dict()
+                    content.append(pdd_goods_data)
+                content = sorted(content, key=lambda x: x['outerId'])
                 return {
                     'content': content,
                     'message': '请求成功',
@@ -65,19 +55,303 @@ class SkuApi(Resource):
         return std_error
 
     def post(self):
-        requests = request.json
-        if requests is not None:
+        data = request.json
+        if data is not None:
             with session_scope() as session:
-                for sku in requests:
-                    Sku.add(session, sku)
+                PddGoods.add(session, data=data)
                 return std_success
+        else:
+            return std_error
+
+    def put(self):
+        data = request.json
+        if data is not None:
+            with session_scope() as session:
+                PddGoods.update(session, data=data)
+                return std_success
+        else:
+            return std_error
+
+
+class PddSkuApi(Resource):
+
+    def get(self):
+        with session_scope() as session:
+            pdd_goods_outer_id = request.args.get('pddGoodsOuterId')
+            pdd_sku_outer_id = request.args.get('pddSkuOuterId')
+            if pdd_goods_outer_id:
+                results = PddGoods.query_pdd_goods_outer_id(session, pdd_goods_outer_id)
+                if results is not None:
+                    results = results[0].pddSku_rs
+            elif pdd_sku_outer_id:
+                results = PddSku.query_pdd_sku_outer_id(session, pdd_sku_outer_id)
+            else:
+                results = PddSku.query(session)
+            if results is not None:
+                content = [i.to_dict() for i in results]
+                content = sorted(content, key=lambda x: x['outerId'])
+                return {
+                    'content': content,
+                    'message': '请求成功',
+                    'code': 0
+                }
         return std_error
 
+    def post(self):
+        data = request.json
+        if data is not None:
+            with session_scope() as session:
+                PddSku.add(session, data)
+                return std_success
+        else:
+            return std_error
 
-api.add_resource(GoodsApi, '/pdd/goods')
-api.add_resource(SkuApi, '/pdd/sku')
+    def put(self):
+        data = request.json
+        if data is not None:
+            with session_scope() as session:
+                PddSku.update(session, data)
+                return std_success
+        else:
+            return std_error
 
+
+class PddOrderApi(Resource):
+    def post(self):
+        """
+        将订单文件导入数据库
+        :return:
+        """
+        parser = reqparse.RequestParser()
+        parser.add_argument('orderFile', type=FileStorage, location='files')
+        args = parser.parse_args()
+        print(args)
+        order_file = parser.parse_args().get('orderFile')
+        print(order_file)
+        orders = PddOrder.csv2order(order_file)
+        if len(orders) <= 0:
+            print('没有有效的订单')
+            return -1
+        else:
+            print(f'订单总量：{len(orders)}')
+
+        # 获取最小发货时间和最大发货时间
+        dt_s = orders[0]["fahuoshijian"]
+        dt_e = orders[0]["fahuoshijian"]
+        for order in orders:
+            dt_order = order['fahuoshijian']
+            if dt_order < dt_s:
+                dt_s = dt_order
+            elif dt_order > dt_e:
+                dt_e = dt_order
+
+        # 过滤已经入库的订单
+        # 找到数据库里面这个时间范围的订单
+        with session_scope() as session:
+            orders_db = PddOrder.query_fahuoshijian(session, dt_s, dt_e)
+
+            # 剔除已经录入的订单
+            dingdanhao_db = set()
+            if orders_db is not None:
+                for order in orders_db:
+                    dingdanhao_db.add(order.dingdanhao)
+            print(f'时间段内数据库中存在的数据总量：{len(dingdanhao_db)}')
+
+        orders_filter = list()
+        for order in orders:
+            if order["dingdanhao"] not in dingdanhao_db:
+                orders_filter.append(order)
+
+        print(f"需要入库的订单数量：{len(orders_filter)}")
+
+        # 将过滤以后的订单入库
+        with session_scope() as session:
+            PddOrder.add(session, orders_filter)
+            print("success")
+
+
+class GoodsApi(Resource):
+
+    def get(self):
+        args = request.args
+        with session_scope() as session:
+            pdd_sku_outer_id = args.get('pddSkuOuterId')
+            if pdd_sku_outer_id:
+                content = list()
+                results = PddSku.query_pdd_sku_outer_id(session, pdd_sku_outer_id)
+                print(results)
+                if results is not None:
+                    for rs_sku_goods in results[0].goods_rs:
+                        data = rs_sku_goods.goods_rs.to_dict()
+                        data['shuliang'] = rs_sku_goods.shuliang
+                        data['sku_bianma'] = rs_sku_goods.sku_bianma
+                        data['goods_bianma'] = rs_sku_goods.goods_bianma
+                        data['id'] = rs_sku_goods.id
+                        content.append(data)
+            else:
+                results = Goods.query(session)
+                content = list()
+                if results is not None:
+                    content = [i.to_dict() for i in results]
+            content = sorted(content, key=lambda x: x['bianma'])
+            return {
+                'content': content,
+                'message': '请求成功',
+                'code': 0
+            }
+
+    def post(self):
+        data = request.json
+        if data is not None:
+            with session_scope() as session:
+                data_result = Goods.add(session, data=data)
+                content = data_result
+                return {
+                    'content': content,
+                    'message': '请求成功',
+                    'code': 0
+                }
+        else:
+            return std_error
+
+    def put(self):
+        data = request.json
+        if data is not None:
+            with session_scope() as session:
+                Goods.update(session, data=data)
+                return std_success
+        else:
+            return std_error
+
+    def delete(self):
+        data = request.args
+        if data is not None and 'bianma' in data:
+            with session_scope() as session:
+                data_id = data['bianma']
+                Goods.delete(session, data_id)
+                return std_success
+        else:
+            return std_error
+
+
+class GoodsDetailApi(Resource):
+    def post(self):
+        data = request.json
+        dt_start = datetime.strptime(data['datetimeStart'], "%Y-%m-%d")
+        dt_end = datetime.strptime(data['datetimeEnd'] + ' 23:59:59', "%Y-%m-%d %H:%M:%S")
+        sku_count = defaultdict(int)
+        while dt_start <= dt_end:
+            dt_today_s = dt_start
+            dt_today_e = dt_start
+            with session_scope() as session:
+                result = PddOrder.query_fahuoshijian(session, dt_start, dt_end)
+                print(f'{dt_start} 订单数量：{len(result)}')
+                if not result:
+                    return
+                for order in result:
+                    if not order.skubianma:
+                        continue
+                    sku_count[order.skubianma] += order.shangpinshuliang
+                goods_count = defaultdict(int)
+                for sku_bianma, count in sku_count.items():
+                    sku = PddSku.query_pdd_sku_outer_id(session, sku_bianma)
+                    if not sku:
+                        continue
+                    for rs_sku_pdd in sku.goods_rs:
+                        goods_count[rs_sku_pdd.goods_bianma] += rs_sku_pdd.shuliang * count
+                goods_bianmas = goods_count.keys()
+                GoodsDetail.delete_datetime_bianmas(session, dt_today_s, dt_today_e, goods_bianmas)
+                goods_detail_list = list()
+                for goods_bianma, xiaoliang in goods_count.items():
+                    goods_detail_list.append({
+                        'statDate': dt_start,
+                        'bianma': goods_bianma,
+                        'xiaoliang': xiaoliang,
+                    })
+                GoodsDetail.add(session, goods_detail_list)
+                dt_start += relativedelta(days=1)
+        return std_success
+
+
+class GoodsKuCunApi(Resource):
+    def put(self):
+        data = request.json
+        dt_start = datetime.strptime(data['datetimeStart'], "%Y-%m-%d")
+        dt_end = datetime.strptime(data['datetimeEnd'] + ' 23:59:59', "%Y-%m-%d %H:%M:%S")
+        if dt_end > datetime.now():
+            dt_end = datetime.now()
+        with session_scope() as session:
+            goods_result = Goods.query(session)
+            kucun_list = list()
+            for goods in goods_result:
+                dt_start_tmp = max(goods.gengxinshijian, dt_start)
+                # dt_start_tmp = dt_start # 恢复库存用
+                goods_detail_result = GoodsDetail.query_datetime_bianma(session, dt_start_tmp, dt_end, goods.bianma)
+                goods_info = {
+                    'bianma': goods.bianma,
+                }
+                xiaoliang = 0
+                for goods_detail in goods_detail_result:
+                    xiaoliang += goods_detail.xiaoliang
+                goods_info["kucun"] = goods.kucun - xiaoliang
+                # goods_info["kucun"] = goods.kucun + xiaoliang  # 恢复库存用
+                goods_info["gengxinshijian"] = max(goods.gengxinshijian, dt_end)
+                kucun_list.append(goods_info)
+            if kucun_list:
+                Goods.update(session, kucun_list)
+                return std_success
+            else:
+                return std_error
+
+
+class RelateSkuGoodsApi(Resource):
+
+    def post(self):
+        data = request.json
+        if data is not None:
+            with session_scope() as session:
+                if 'id' in data:
+                    data.pop('id')
+                data_result = RelateSkuGoods.add(session, data=data)
+                content = data_result
+                return {
+                    'content': content,
+                    'message': '请求成功',
+                    'code': 0
+                }
+        else:
+            return std_error
+
+    def put(self):
+        data = request.json
+        if data is not None:
+            with session_scope() as session:
+                RelateSkuGoods.update(session, data=data)
+                return std_success
+        else:
+            return std_error
+
+    def delete(self):
+        data = request.args
+        if data is not None and 'id' in data:
+            with session_scope() as session:
+                data_id = data['id']
+                RelateSkuGoods.delete(session, data_id)
+                return std_success
+        else:
+            return std_error
+
+
+api.add_resource(PddGoodsApi, '/erp/pddGoods')
+api.add_resource(PddSkuApi, '/erp/pddSku')
+api.add_resource(PddOrderApi, '/erp/pddOrder')
+api.add_resource(GoodsApi, '/erp/goods')
+api.add_resource(GoodsDetailApi, '/erp/goodsDetail')
+api.add_resource(GoodsKuCunApi, '/erp/goodsKuCun')
+api.add_resource(RelateSkuGoodsApi, '/erp/relateSkuGoods')
 
 if __name__ == '__main__':
     host = '192.168.124.21'
+    # host = '192.168.8.102'
+    # host = '192.168.0.170'
     app.run(debug=True, host=host, port=5000)

@@ -3,12 +3,11 @@
 # @Time    : 2020-07-14 21:23
 # @Author  : NingAnMe <ninganme@qq.com>
 from collections import defaultdict
-from datetime import datetime
 import json
 
+import pandas as pd
 from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey
 from sqlalchemy.orm import relationship
-
 
 from lib.database import *
 
@@ -17,15 +16,174 @@ class PddGoods(Base):
     __tablename__ = "pddGoods"
 
     # 商品编码
-    id = Column(String, primary_key=True)  # 商品id
-    mingcheng = Column(String)  # 名称
-    bianma = Column(String, unique=True)  # 编码
+    id = Column(String, primary_key=True)
+    outerId = Column(String, unique=True)
+    shopId = Column(String)
+    goodsId = Column(String)
+    goodsTitle = Column(String)
+    shortName = Column(String)
+    categoryId = Column(String)
+    categoryName = Column(String)
+    saleStatus = Column(String)
+    onlineStatus = Column(String)
+    salePrice = Column(String)
+    createTime = Column(DateTime)
+    modifyTime = Column(DateTime)
+    recordTime = Column(DateTime)
 
-    beizhu = Column(String)  # 备注
-    gengxinshijian = Column(DateTime)  # 更新时间
+    imageUrl = Column(String)
 
-    goods_relate_detail = relationship("PddGoodsDetail", backref="shangpin_id")
-    goods_relate_ad = relationship("AdUnit", backref="shangpin_id")
+    beizhu = Column(String)
+
+    pddSku_rs = relationship("PddSku", backref="pddGoods_rs")
+    pddGoodsDetail_rs = relationship("PddGoodsDetail", backref="pddGoods_rs")
+    adUnit_rs = relationship("PddAdUnit", backref="pddGoods_rs")
+
+    @classmethod
+    def str2datetime(cls, date_str):
+        try:
+            return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        except Exception as why:
+            return None
+
+    @classmethod
+    def json2data(cls, json_file):
+        with open(json_file, 'r') as fp:
+            data_json = json.load(fp)
+        if not data_json['success']:
+            return
+
+        key_list = {
+            "id", "outerId", "shopId", "goodsId", "goodsTitle",
+            "shortName", "categoryId", "categoryName", "saleStatus", "onlineStatus",
+            "salePrice", "createTime", "modifyTime", "recordTime", "imageUrl",
+        }
+        goods_detail_list = list()
+        for detail in data_json['data']:
+            if detail['outerId'] is None or len(detail['outerId']) != 5:
+                continue
+            goods_detail = dict()
+            for k, v in detail.items():
+                if k in key_list:
+                    goods_detail[k] = v
+            if goods_detail['createTime'] is not None:
+                goods_detail['createTime'] = cls.str2datetime(goods_detail['createTime'])
+            if goods_detail['modifyTime'] is not None:
+                goods_detail['modifyTime'] = cls.str2datetime(goods_detail['modifyTime'])
+            if goods_detail['recordTime'] is not None:
+                goods_detail['recordTime'] = cls.str2datetime(goods_detail['recordTime'])
+            goods_detail_list.append(goods_detail)
+        return goods_detail_list
+
+    @classmethod
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data = PddGoods(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
+        if isinstance(data, list):
+            session.bulk_insert_mappings(PddGoods, data)
+
+    @classmethod
+    def update(cls, session, data):
+        if isinstance(data, dict):
+            data = [data]
+        if isinstance(data, list):
+            session.bulk_update_mappings(PddGoods, data)
+
+    @classmethod
+    def query(cls, session):
+        return session.query(PddGoods).all()
+
+    @classmethod
+    def query_pdd_goods_outer_id(cls, session, outer_id):
+        return session.query(PddGoods).filter(PddGoods.outerId == outer_id.strip()).all()
+
+
+class PddSku(Base):
+    __tablename__ = 'pddSku'
+
+    id = Column(String)
+    outerId = Column(String, primary_key=True)
+    shopId = Column(String)
+    goodsId = Column(String, ForeignKey('pddGoods.goodsId'))
+    skuId = Column(String)
+    skuName = Column(String)
+    chengben = Column(Float, default=0)
+    saleStatus = Column(String)
+    onlineStatus = Column(String)
+    shortName = Column(String)
+    recordTime = Column(DateTime)
+    imageUrl = Column(String)
+
+    beizhu = Column(String)
+
+    goods_rs = relationship("RelateSkuGoods", back_populates='pddSku_rs')  # goods关联的sku实例 = RelateSkuGoods.pddSku_rs
+
+    @classmethod
+    def str2datetime(cls, date_str):
+        try:
+            return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        except Exception as why:
+            return None
+
+    @classmethod
+    def json2data(cls, json_file):
+        with open(json_file, 'r') as fp:
+            data_json = json.load(fp)
+        if not data_json['success']:
+            return
+
+        key_list = {
+            "id", "outerId", "shopId", "goodsId", "skuId",
+            "skuName", "saleStatus", "onlineStatus", "shortName", "recordTime",
+            "imageUrl",
+        }
+        data_dict = dict()
+        for detail in data_json['data']:
+            if detail['outerId'] is None or len(detail['outerId']) != 5:
+                continue
+            for sku in detail['skuList']:
+                sku_detail = dict()
+                outer_id = sku['outerId']
+                if outer_id is None or len(outer_id) != 7:
+                    continue
+                for k, v in sku.items():
+                    if k in key_list:
+                        sku_detail[k] = v
+                sku_detail['recordTime'] = cls.str2datetime(sku_detail['recordTime'])
+                if outer_id not in data_dict:
+                    data_dict[outer_id] = sku_detail
+                elif data_dict[outer_id]["recordTime"] < sku_detail["recordTime"]:
+                    data_dict[outer_id] = sku_detail
+        data_list = list(data_dict.values())
+        return data_list
+
+    @classmethod
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data = PddSku(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
+        if isinstance(data, list):
+            session.bulk_insert_mappings(PddSku, data)
+
+    @classmethod
+    def update(cls, session, data):
+        if isinstance(data, dict):
+            data = [data]
+        if isinstance(data, list):
+            session.bulk_update_mappings(PddSku, data)
+
+    @classmethod
+    def query(cls, session):
+        return session.query(PddSku).all()
+
+    @classmethod
+    def query_pdd_sku_outer_id(cls, session, outer_id):
+        return session.query(PddSku).filter(PddSku.outerId == outer_id.strip()).first()
 
 
 class PddGoodsDetail(Base):
@@ -33,8 +191,8 @@ class PddGoodsDetail(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     statDate = Column(DateTime)  # 时间
+    goodsId = Column(String, ForeignKey("pddGoods.goodsId"))
 
-    goodsId = Column(String, ForeignKey("pddGoods.id"))
     goodsName = Column(String)  # 名称
 
     payOrdrGoodsQty = Column(Integer)  # 支付件数
@@ -83,8 +241,10 @@ class PddGoodsDetail(Base):
     @classmethod
     def add(cls, session, data):
         if isinstance(data, dict):
-            data_ = PddGoodsDetail(**data)
-            session.add(data_)
+            data = PddAdUnit(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
         elif isinstance(data, list):
             session.bulk_insert_mappings(PddGoodsDetail, data)
 
@@ -95,7 +255,7 @@ class PddGoodsDetail(Base):
     @classmethod
     def paid_free_order(cls, dt):
         with session_scope() as session:
-            result = AdUnit.query_datetime(session, dt)
+            result = PddAdUnit.query_datetime(session, dt)
             goods_paid_order = defaultdict(int)
             for row in result:
                 goods_id = row.goodsId
@@ -111,8 +271,8 @@ class PddGoodsDetail(Base):
             print(f'paid_free_order Success: 处理数据量：{count}')
 
 
-class AdUnit(Base):
-    __tablename__ = 'adUnit'
+class PddAdUnit(Base):
+    __tablename__ = 'pddAdUnit'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     statDate = Column(DateTime)  # 时间
@@ -165,71 +325,294 @@ class AdUnit(Base):
     @classmethod
     def add(cls, session, data):
         if isinstance(data, dict):
-            data_ = AdUnit(**data)
-            session.add(data_)
+            data = PddAdUnit(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
         elif isinstance(data, list):
-            session.bulk_insert_mappings(AdUnit, data)
+            session.bulk_insert_mappings(PddAdUnit, data)
 
     @classmethod
     def query_datetime(cls, session, dt):
-        return session.query(AdUnit).filter(AdUnit.statDate == dt).all()
+        return session.query(PddAdUnit).filter(PddAdUnit.statDate == dt).all()
 
 
-def test_PddGoodsDetail():
-    json_data = '{"success":true,"errorCode":1000000,"errorMsg":null,"result":{"goodsDetailList":[{"statDate":"2020-07-17","goodsId":102008752835,"goodsName":"烧电焊面罩护脸脸部头戴式焊工防烤护目焊接二保焊电焊机全脸眼镜","goodsFavCnt":204,"goodsUv":6489,"goodsPv":7150,"payOrdrCnt":406,"goodsVcr":0.060872245338264755,"pctGoodsVcr":null,"payOrdrGoodsQty":440,"payOrdrUsrCnt":395,"payOrdrAmt":4353.36,"cfmOrdrCnt":415,"cfmOrdrGoodsQty":441,"goodsUvPpr":0.08186062020673558,"goodsPvPpr":0.07454162909528103,"payOrdrCntPpr":-0.004901960784313725,"goodsVcrPpr":-0.08263385040474375,"cfmOrdrRtoPpr":0.13020144979774922,"goodsFavCntPpr":0.25153374233128833,"payOrdrGoodsQtyPpr":0.002277904328018223,"payOrdrUsrCntPpr":-0.007537688442211055,"payOrdrAmtPpr":-0.001770203711007365,"cfmOrdrCntPpr":0.12466124661246612,"cfmOrdrGoodsQtyPpr":0.11363636363636363,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":true,"goodsVcrPprIsPercent":true,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":true,"payOrdrGoodsQtyPprIsPercent":true,"payOrdrUsrCntPprIsPercent":true,"payOrdrAmtPprIsPercent":true,"cfmOrdrCntPprIsPercent":true,"cfmOrdrGoodsQtyPprIsPercent":true,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-04-03/1bc0972f291312605498da32f7a8bf29.jpeg","cate3PctGoodsVcr":0.9653808110781404,"cate3AvgGoodsVcr":0.14919832592840523,"cate3IsPgvAbove":1,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":99858100334,"goodsName":"电焊面罩护脸焊工防护眼镜头戴式护目氩弧焊接二保焊烧电焊机牛皮","goodsFavCnt":10,"goodsUv":517,"goodsPv":596,"payOrdrCnt":29,"goodsVcr":0.05415860735009671,"pctGoodsVcr":null,"payOrdrGoodsQty":32,"payOrdrUsrCnt":28,"payOrdrAmt":273.8,"cfmOrdrCnt":31,"cfmOrdrGoodsQty":35,"goodsUvPpr":0.005836575875486381,"goodsPvPpr":-0.040257648953301126,"payOrdrCntPpr":-0.275,"goodsVcrPpr":-0.26743357426448133,"cfmOrdrRtoPpr":-0.17771883289124676,"goodsFavCntPpr":0.1111111111111111,"payOrdrGoodsQtyPpr":-0.21951219512195122,"payOrdrUsrCntPpr":-0.2631578947368421,"payOrdrAmtPpr":-0.28405198336950555,"cfmOrdrCntPpr":-0.40384615384615385,"cfmOrdrGoodsQtyPpr":-0.375,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":true,"goodsVcrPprIsPercent":true,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":true,"payOrdrGoodsQtyPprIsPercent":true,"payOrdrUsrCntPprIsPercent":true,"payOrdrAmtPprIsPercent":true,"cfmOrdrCntPprIsPercent":true,"cfmOrdrGoodsQtyPprIsPercent":true,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-06-02/e5186383663c5be99887f26ed2023d6c.jpeg","cate3PctGoodsVcr":0.9612265084075173,"cate3AvgGoodsVcr":0.14919832592840523,"cate3IsPgvAbove":1,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":149262309276,"goodsName":"电焊眼镜护目镜男防尘打磨飞溅强闪光烧焊工专用防紫外线劳保防护","goodsFavCnt":10,"goodsUv":368,"goodsPv":427,"payOrdrCnt":17,"goodsVcr":0.04619565217391304,"pctGoodsVcr":null,"payOrdrGoodsQty":17,"payOrdrUsrCnt":17,"payOrdrAmt":108.82,"cfmOrdrCnt":18,"cfmOrdrGoodsQty":19,"goodsUvPpr":0.5269709543568465,"goodsPvPpr":0.5415162454873647,"payOrdrCntPpr":-0.05555555555555555,"goodsVcrPpr":-0.34510869565217395,"cfmOrdrRtoPpr":0.27058823529411763,"goodsFavCntPpr":0.42857142857142855,"payOrdrGoodsQtyPpr":-0.10526315789473684,"payOrdrUsrCntPpr":0.0,"payOrdrAmtPpr":-0.192010692010692,"cfmOrdrCntPpr":0.2,"cfmOrdrGoodsQtyPpr":0.26666666666666666,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":true,"goodsVcrPprIsPercent":true,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":true,"payOrdrGoodsQtyPprIsPercent":true,"payOrdrUsrCntPprIsPercent":true,"payOrdrAmtPprIsPercent":true,"cfmOrdrCntPprIsPercent":true,"cfmOrdrGoodsQtyPprIsPercent":true,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-07-09/52df1f59034d51489ec72e2b76c52e49.jpeg","cate3PctGoodsVcr":0.9566765578635015,"cate3AvgGoodsVcr":0.14919832592840523,"cate3IsPgvAbove":1,"isCreated1m":1,"isNewstyle":0,"goodsLabel":0,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":106421165950,"goodsName":"电焊面罩自动变光防护护脸焊工头盔头戴式护目氩弧焊接焊烧电焊机","goodsFavCnt":3,"goodsUv":262,"goodsPv":288,"payOrdrCnt":2,"goodsVcr":0.007633587786259542,"pctGoodsVcr":null,"payOrdrGoodsQty":2,"payOrdrUsrCnt":2,"payOrdrAmt":98.4,"cfmOrdrCnt":2,"cfmOrdrGoodsQty":2,"goodsUvPpr":0.49714285714285716,"goodsPvPpr":0.5,"payOrdrCntPpr":-0.3333333333333333,"goodsVcrPpr":-0.5547073791348601,"cfmOrdrRtoPpr":0.0,"goodsFavCntPpr":-0.25,"payOrdrGoodsQtyPpr":-0.3333333333333333,"payOrdrUsrCntPpr":-0.3333333333333333,"payOrdrAmtPpr":-0.2919844581954238,"cfmOrdrCntPpr":-0.3333333333333333,"cfmOrdrGoodsQtyPpr":-0.3333333333333333,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":true,"goodsVcrPprIsPercent":true,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":true,"payOrdrGoodsQtyPprIsPercent":true,"payOrdrUsrCntPprIsPercent":true,"payOrdrAmtPprIsPercent":true,"cfmOrdrCntPprIsPercent":true,"cfmOrdrGoodsQtyPprIsPercent":true,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-04-20/b9acb14b8573fc6c7e56776535f6f8d8.jpeg","cate3PctGoodsVcr":0.9353115727002967,"cate3AvgGoodsVcr":0.14919832592840523,"cate3IsPgvAbove":1,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":93699810996,"goodsName":"口罩女防晒可水洗纯棉透气布口罩印花夏季薄款紫外线普通成人防尘","goodsFavCnt":7,"goodsUv":144,"goodsPv":179,"payOrdrCnt":12,"goodsVcr":0.0763888888888889,"pctGoodsVcr":null,"payOrdrGoodsQty":12,"payOrdrUsrCnt":11,"payOrdrAmt":138.79,"cfmOrdrCnt":12,"cfmOrdrGoodsQty":12,"goodsUvPpr":-0.06493506493506493,"goodsPvPpr":-0.02717391304347826,"payOrdrCntPpr":0.2,"goodsVcrPpr":0.1763888888888891,"cfmOrdrRtoPpr":-0.16666666666666663,"goodsFavCntPpr":0.0,"payOrdrGoodsQtyPpr":0.2,"payOrdrUsrCntPpr":0.1,"payOrdrAmtPpr":-0.101275658874571,"cfmOrdrCntPpr":0.0,"cfmOrdrGoodsQtyPpr":0.0,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":true,"goodsVcrPprIsPercent":true,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":true,"payOrdrGoodsQtyPprIsPercent":true,"payOrdrUsrCntPprIsPercent":true,"payOrdrAmtPprIsPercent":true,"cfmOrdrCntPprIsPercent":true,"cfmOrdrGoodsQtyPprIsPercent":true,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-03-27/7dac286ed27be901679d0e920e97ef66.jpeg","cate3PctGoodsVcr":0.992640155617144,"cate3AvgGoodsVcr":0.12998295823062347,"cate3IsPgvAbove":1,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":120376056801,"goodsName":"护目镜男女防尘防飞沫防唾沫风沙防护透明飞溅网红骑行学生防风镜","goodsFavCnt":13,"goodsUv":133,"goodsPv":164,"payOrdrCnt":12,"goodsVcr":0.09022556390977443,"pctGoodsVcr":null,"payOrdrGoodsQty":14,"payOrdrUsrCnt":12,"payOrdrAmt":77.95,"cfmOrdrCnt":12,"cfmOrdrGoodsQty":14,"goodsUvPpr":-0.08275862068965517,"goodsPvPpr":-0.0989010989010989,"payOrdrCntPpr":-0.2,"goodsVcrPpr":-0.1278195488721805,"cfmOrdrRtoPpr":0.0,"goodsFavCntPpr":0.8571428571428571,"payOrdrGoodsQtyPpr":-0.125,"payOrdrUsrCntPpr":-0.2,"payOrdrAmtPpr":-0.17843591905564923,"cfmOrdrCntPpr":-0.2,"cfmOrdrGoodsQtyPpr":-0.125,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":true,"goodsVcrPprIsPercent":true,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":true,"payOrdrGoodsQtyPprIsPercent":true,"payOrdrUsrCntPprIsPercent":true,"payOrdrAmtPprIsPercent":true,"cfmOrdrCntPprIsPercent":true,"cfmOrdrGoodsQtyPprIsPercent":true,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-05-12/905898432b49b88d932b8bfb0aca476c.jpeg","cate3PctGoodsVcr":0.990527589094631,"cate3AvgGoodsVcr":0.16738492863346488,"cate3IsPgvAbove":1,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":136095854191,"goodsName":"自动变光电焊面罩氩弧焊头戴式焊工防护防紫外线烧焊护脸安全帽子","goodsFavCnt":2,"goodsUv":124,"goodsPv":149,"payOrdrCnt":2,"goodsVcr":0.016129032258064516,"pctGoodsVcr":null,"payOrdrGoodsQty":2,"payOrdrUsrCnt":2,"payOrdrAmt":117.45,"cfmOrdrCnt":3,"cfmOrdrGoodsQty":3,"goodsUvPpr":-0.12056737588652482,"goodsPvPpr":-0.08588957055214724,"payOrdrCntPpr":0.0,"goodsVcrPpr":0.13709677419354838,"cfmOrdrRtoPpr":0.5,"goodsFavCntPpr":0.0,"payOrdrGoodsQtyPpr":0.0,"payOrdrUsrCntPpr":0.0,"payOrdrAmtPpr":0.07142857142857142,"cfmOrdrCntPpr":0.5,"cfmOrdrGoodsQtyPpr":0.5,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":true,"goodsVcrPprIsPercent":true,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":true,"payOrdrGoodsQtyPprIsPercent":true,"payOrdrUsrCntPprIsPercent":true,"payOrdrAmtPprIsPercent":true,"cfmOrdrCntPprIsPercent":true,"cfmOrdrGoodsQtyPprIsPercent":true,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-06-10/4a91b81cb3906c7c38b99fed945ab76c.jpeg","cate3PctGoodsVcr":0.9376854599406528,"cate3AvgGoodsVcr":0.14919832592840523,"cate3IsPgvAbove":1,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":145842640027,"goodsName":"电焊高清黑玻璃片透明黑色7号8号9号镜片焊工焊接面罩护目防护帽","goodsFavCnt":2,"goodsUv":113,"goodsPv":170,"payOrdrCnt":17,"goodsVcr":0.13274336283185842,"pctGoodsVcr":null,"payOrdrGoodsQty":20,"payOrdrUsrCnt":15,"payOrdrAmt":274.58,"cfmOrdrCnt":16,"cfmOrdrGoodsQty":19,"goodsUvPpr":0.0761904761904762,"goodsPvPpr":0.1111111111111111,"payOrdrCntPpr":0.5454545454545454,"goodsVcrPpr":0.2670957361222849,"cfmOrdrRtoPpr":-0.13725490196078427,"goodsFavCntPpr":0.0,"payOrdrGoodsQtyPpr":0.8181818181818182,"payOrdrUsrCntPpr":0.36363636363636365,"payOrdrAmtPpr":0.8315101387406617,"cfmOrdrCntPpr":0.3333333333333333,"cfmOrdrGoodsQtyPpr":0.5833333333333334,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":true,"goodsVcrPprIsPercent":true,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":true,"payOrdrGoodsQtyPprIsPercent":true,"payOrdrUsrCntPprIsPercent":true,"payOrdrAmtPprIsPercent":true,"cfmOrdrCntPprIsPercent":true,"cfmOrdrGoodsQtyPprIsPercent":true,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-07-11/893b3a7ce3bc203584a242b463369f11.jpeg","cate3PctGoodsVcr":0.9841740850642928,"cate3AvgGoodsVcr":0.14919832592840523,"cate3IsPgvAbove":1,"isCreated1m":1,"isNewstyle":0,"goodsLabel":0,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":92403805012,"goodsName":"保险锁双飞牌老式三保险锁大门锁7710锁老门锁木门锁大门锁防盗锁","goodsFavCnt":1,"goodsUv":22,"goodsPv":26,"payOrdrCnt":0,"goodsVcr":0.0,"pctGoodsVcr":null,"payOrdrGoodsQty":0,"payOrdrUsrCnt":0,"payOrdrAmt":0.0,"cfmOrdrCnt":1,"cfmOrdrGoodsQty":1,"goodsUvPpr":-0.3125,"goodsPvPpr":-0.23529411764705882,"payOrdrCntPpr":-1.0,"goodsVcrPpr":-1.0,"cfmOrdrRtoPpr":null,"goodsFavCntPpr":-0.5,"payOrdrGoodsQtyPpr":-1.0,"payOrdrUsrCntPpr":-1.0,"payOrdrAmtPpr":-1.0,"cfmOrdrCntPpr":1.0,"cfmOrdrGoodsQtyPpr":1.0,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":true,"goodsVcrPprIsPercent":true,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":true,"payOrdrGoodsQtyPprIsPercent":true,"payOrdrUsrCntPprIsPercent":true,"payOrdrAmtPprIsPercent":true,"cfmOrdrCntPprIsPercent":false,"cfmOrdrGoodsQtyPprIsPercent":false,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-07-09/3a51b06666c1730497d90e264681e4f6.jpeg","cate3PctGoodsVcr":0.0,"cate3AvgGoodsVcr":0.17905803354141653,"cate3IsPgvAbove":0,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":138147232044,"goodsName":"自动变光镜片保护片电焊工PC保护片板组电焊面罩眼镜焊帽防焊渣片","goodsFavCnt":1,"goodsUv":15,"goodsPv":23,"payOrdrCnt":0,"goodsVcr":0.0,"pctGoodsVcr":null,"payOrdrGoodsQty":0,"payOrdrUsrCnt":0,"payOrdrAmt":0.0,"cfmOrdrCnt":0,"cfmOrdrGoodsQty":0,"goodsUvPpr":0.15384615384615385,"goodsPvPpr":0.4375,"payOrdrCntPpr":-1.0,"goodsVcrPpr":-1.0,"cfmOrdrRtoPpr":-1.0,"goodsFavCntPpr":1.0,"payOrdrGoodsQtyPpr":-1.0,"payOrdrUsrCntPpr":-1.0,"payOrdrAmtPpr":-1.0,"cfmOrdrCntPpr":-1.0,"cfmOrdrGoodsQtyPpr":-1.0,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":true,"goodsVcrPprIsPercent":true,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":false,"payOrdrGoodsQtyPprIsPercent":true,"payOrdrUsrCntPprIsPercent":true,"payOrdrAmtPprIsPercent":true,"cfmOrdrCntPprIsPercent":true,"cfmOrdrGoodsQtyPprIsPercent":true,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-06-27/8841a0ad36b80026bf9a6364f57c8023.jpeg","cate3PctGoodsVcr":0.0,"cate3AvgGoodsVcr":0.14919832592840523,"cate3IsPgvAbove":0,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":86906722647,"goodsName":"硅胶门吸免打孔静音吸入式卫生间浴室防撞门后强磁厕所门挡防撞墙","goodsFavCnt":0,"goodsUv":10,"goodsPv":10,"payOrdrCnt":2,"goodsVcr":0.2,"pctGoodsVcr":null,"payOrdrGoodsQty":2,"payOrdrUsrCnt":2,"payOrdrAmt":24.6,"cfmOrdrCnt":2,"cfmOrdrGoodsQty":2,"goodsUvPpr":1.0,"goodsPvPpr":0.25,"payOrdrCntPpr":2.0,"goodsVcrPpr":0.2,"cfmOrdrRtoPpr":null,"goodsFavCntPpr":-1.0,"payOrdrGoodsQtyPpr":2.0,"payOrdrUsrCntPpr":2.0,"payOrdrAmtPpr":24.6,"cfmOrdrCntPpr":2.0,"cfmOrdrGoodsQtyPpr":2.0,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":false,"goodsVcrPprIsPercent":false,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":true,"payOrdrGoodsQtyPprIsPercent":false,"payOrdrUsrCntPprIsPercent":false,"payOrdrAmtPprIsPercent":false,"cfmOrdrCntPprIsPercent":false,"cfmOrdrGoodsQtyPprIsPercent":false,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-05-26/24dbd4d842cbae0be2324e13949abb0c.jpeg","cate3PctGoodsVcr":0.9902514109799897,"cate3AvgGoodsVcr":0.20809653825349808,"cate3IsPgvAbove":1,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":137884434853,"goodsName":"电动自行车头盔夏季防晒电瓶车男士女款通用式轻便式夏天挡风半盔","goodsFavCnt":0,"goodsUv":5,"goodsPv":8,"payOrdrCnt":0,"goodsVcr":0.0,"pctGoodsVcr":null,"payOrdrGoodsQty":0,"payOrdrUsrCnt":0,"payOrdrAmt":0.0,"cfmOrdrCnt":0,"cfmOrdrGoodsQty":0,"goodsUvPpr":0.0,"goodsPvPpr":0.14285714285714285,"payOrdrCntPpr":0.0,"goodsVcrPpr":0.0,"cfmOrdrRtoPpr":null,"goodsFavCntPpr":0.0,"payOrdrGoodsQtyPpr":0.0,"payOrdrUsrCntPpr":0.0,"payOrdrAmtPpr":0.0,"cfmOrdrCntPpr":0.0,"cfmOrdrGoodsQtyPpr":0.0,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":false,"goodsVcrPprIsPercent":false,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":false,"payOrdrGoodsQtyPprIsPercent":false,"payOrdrUsrCntPprIsPercent":false,"payOrdrAmtPprIsPercent":false,"cfmOrdrCntPprIsPercent":false,"cfmOrdrGoodsQtyPprIsPercent":false,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-06-30/b2065b1557137d9e62204efd35905fd2.jpeg","cate3PctGoodsVcr":0.0,"cate3AvgGoodsVcr":0.09580929644449604,"cate3IsPgvAbove":0,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":126266054358,"goodsName":"【现货】电动车头盔摩托电瓶车夏四季骑行安全帽轻便式防晒全男女","goodsFavCnt":0,"goodsUv":4,"goodsPv":4,"payOrdrCnt":0,"goodsVcr":0.0,"pctGoodsVcr":null,"payOrdrGoodsQty":0,"payOrdrUsrCnt":0,"payOrdrAmt":0.0,"cfmOrdrCnt":0,"cfmOrdrGoodsQty":0,"goodsUvPpr":-0.2,"goodsPvPpr":-0.2,"payOrdrCntPpr":0.0,"goodsVcrPpr":0.0,"cfmOrdrRtoPpr":null,"goodsFavCntPpr":0.0,"payOrdrGoodsQtyPpr":0.0,"payOrdrUsrCntPpr":0.0,"payOrdrAmtPpr":0.0,"cfmOrdrCntPpr":0.0,"cfmOrdrGoodsQtyPpr":0.0,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":false,"goodsVcrPprIsPercent":false,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":false,"payOrdrGoodsQtyPprIsPercent":false,"payOrdrUsrCntPprIsPercent":false,"payOrdrAmtPprIsPercent":false,"cfmOrdrCntPprIsPercent":false,"cfmOrdrGoodsQtyPprIsPercent":false,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-05-23/bde500a22674579116d86bd4c5c44d05.jpeg","cate3PctGoodsVcr":0.0,"cate3AvgGoodsVcr":0.09580929644449604,"cate3IsPgvAbove":0,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null},{"statDate":"2020-07-17","goodsId":131981894794,"goodsName":"电动自行车头盔夏季防晒男士女款通用式电瓶车轻便式夏天挡风半盔","goodsFavCnt":0,"goodsUv":1,"goodsPv":1,"payOrdrCnt":0,"goodsVcr":0.0,"pctGoodsVcr":null,"payOrdrGoodsQty":0,"payOrdrUsrCnt":0,"payOrdrAmt":0.0,"cfmOrdrCnt":0,"cfmOrdrGoodsQty":0,"goodsUvPpr":-0.75,"goodsPvPpr":-0.75,"payOrdrCntPpr":0.0,"goodsVcrPpr":0.0,"cfmOrdrRtoPpr":null,"goodsFavCntPpr":0.0,"payOrdrGoodsQtyPpr":0.0,"payOrdrUsrCntPpr":0.0,"payOrdrAmtPpr":0.0,"cfmOrdrCntPpr":0.0,"cfmOrdrGoodsQtyPpr":0.0,"goodsUvPprIsPercent":true,"goodsPvPprIsPercent":true,"payOrdrCntPprIsPercent":false,"goodsVcrPprIsPercent":false,"cfmOrdrRtoPprIsPercent":true,"goodsFavCntPprIsPercent":false,"payOrdrGoodsQtyPprIsPercent":false,"payOrdrUsrCntPprIsPercent":false,"payOrdrAmtPprIsPercent":false,"cfmOrdrCntPprIsPercent":false,"cfmOrdrGoodsQtyPprIsPercent":false,"hdThumbUrl":"https://t00img.yangkeduo.com/goods/images/2020-06-02/2aa273c54fce1737684b7048fc252864.jpeg","cate3PctGoodsVcr":0.0,"cate3AvgGoodsVcr":0.09580929644449604,"cate3IsPgvAbove":0,"isCreated1m":0,"isNewstyle":0,"goodsLabel":null,"adStrategy":4,"url":null}],"totalNum":14}}'
-    dt_str = "2020-07-17"
-    datas = PddGoodsDetail.json2data(json_data)
-    with session_scope() as session:
-        dt = PddGoodsDetail.str2datetime(dt_str)
-        result = PddGoodsDetail.query_datetime(session, dt)
-        ids = set()
-        for row in result:
-            ids.add(row.goodsId)
-        datas_filter = list()
-        for i in datas:
-            if str(i['goodsId']) not in ids:
-                datas_filter.append(i)
-        PddGoodsDetail.add(session, datas_filter)
+class Goods(Base):
+    __tablename__ = 'goods'
+
+    # 商品编码
+    bianma = Column(String, primary_key=True)
+    mingcheng = Column(String)
+    danwei = Column(String, default='个')
+    kucun = Column(Integer, nullable=False, default=0)
+    junjia = Column(Float, nullable=False, default=0)
+    beizhu = Column(String)
+    gengxinshijian = Column(DateTime)
+
+    pddSku_rs = relationship("RelateSkuGoods", back_populates='goods_rs')
+    goodsDetail_rs = relationship('GoodsDetail', backref='goods_rs')
+
+    @classmethod
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data = Goods(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
+        if isinstance(data, list):
+            session.bulk_insert_mappings(Goods, data)
+
+    @classmethod
+    def delete(cls, session, data_id):
+        session.query(Goods).filter(Goods.bianma == data_id).delete()
+
+    @classmethod
+    def update(cls, session, data):
+        if isinstance(data, dict):
+            data = [data]
+        if isinstance(data, list):
+            session.bulk_update_mappings(Goods, data)
+
+    @classmethod
+    def query(cls, session):
+        return session.query(Goods).all()
+
+    @classmethod
+    def query_bianma_in_(cls, session, bianmas):
+        return session.query(Goods).filter(Goods.bianma.in_(bianmas)).all()
+
+    @classmethod
+    def goods_add_csv(cls, goods_file):
+        """
+        将商品信息导入数据库
+        :param goods_file: csv文件
+        :return:
+        """
+        goods_info = pd.read_csv(goods_file, index_col=None, encoding='GBK')
+        for _, g in goods_info.iterrows():
+            print(g.to_dict())
+
+        with session_scope() as session:
+            goods = Goods.query(session)
+            bianmas = set()
+            if goods is not None:
+                for g in goods:
+                    bianmas.add(g.bianma)
+
+            for _, g in goods_info.iterrows():
+                if str(g.bianma) not in bianmas:
+                    g_dict = g.to_dict()
+                    Goods.add(session, g_dict)
 
 
-def test_AdUnit_search():
-    json_data = '{"success":true,"errorCode":1000,"errorMsg":null,"result":[{"impression":207,"click":10,"ctr":0.04830917874396135,"transactionCost":1414.0,"spend":2828,"roi":5.601131541725601,"orderNum":2,"cpc":282.8,"cvr":0.2,"gmv":15840,"cpm":13661.835748792271,"mallFavNum":0,"goodsFavNum":0,"inquiryNum":2,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":7920.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":34793699,"planName":"电焊眼镜_2020-07-09","businessType":1,"adId":208500568,"adName":"电焊眼镜_2020-07-09","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":1,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":149262309276,"goodsName":"电焊眼镜护目镜男防尘打磨飞溅强闪光烧焊工专用防紫外线劳保防护","catId":11325,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-07-09/b52463e065309977fe957b86ad25d6e2.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":5500,"maxGroupPrice":19900,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":383,"click":14,"ctr":0.03655352480417755,"transactionCost":0.0,"spend":2888,"roi":0.0,"orderNum":0,"cpc":206.28571428571428,"cvr":0.0,"gmv":0,"cpm":7540.469973890339,"mallFavNum":0,"goodsFavNum":0,"inquiryNum":0,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":0.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":34460475,"planName":"双飞锁_2020-07-06","businessType":1,"adId":206805814,"adName":"双飞锁_2020-07-06","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":1,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":92403805012,"goodsName":"保险锁双飞牌老式三保险锁大门锁7710锁老门锁木门锁大门锁防盗锁","catId":10750,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-07-09/70a80c3285033b339245df911eb758ff.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":17400,"maxGroupPrice":17400,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":1637,"click":73,"ctr":0.04459376908979841,"transactionCost":25236.0,"spend":25236,"roi":1.9495958155016644,"orderNum":1,"cpc":345.6986301369863,"cvr":0.0136986301369863,"gmv":49200,"cpm":15416.004886988394,"mallFavNum":1,"goodsFavNum":3,"inquiryNum":1,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":49200.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":32386922,"planName":"变光面罩_2020-06-14","businessType":1,"adId":205416273,"adName":"头盔面罩_2020-07-03","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":1,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":106421165950,"goodsName":"电焊面罩自动变光防护护脸焊工头盔头戴式护目氩弧焊接焊烧电焊机","catId":11323,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-04-20/5e1519c66292cc0ed867fb1355afa3ec.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":54700,"maxGroupPrice":57800,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":848,"click":72,"ctr":0.08490566037735849,"transactionCost":2136.0,"spend":21360,"roi":9.433052434456929,"orderNum":10,"cpc":296.6666666666667,"cvr":0.1388888888888889,"gmv":201490,"cpm":25188.67924528302,"mallFavNum":0,"goodsFavNum":1,"inquiryNum":4,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":20149.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":34081277,"planName":"玻璃镜片_2020-07-02","businessType":1,"adId":204870894,"adName":"玻璃镜片_2020-07-02","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":1,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":145842640027,"goodsName":"电焊高清黑玻璃片透明黑色7号8号9号镜片焊工焊接面罩护目防护帽","catId":11323,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-07-11/169834fe228be3ba2486e3ee04b408ac.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":7350,"maxGroupPrice":27900,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":1226,"click":30,"ctr":0.024469820554649267,"transactionCost":17347.0,"spend":17347,"roi":3.610999020003459,"orderNum":1,"cpc":578.2333333333333,"cvr":0.03333333333333333,"gmv":62640,"cpm":14149.265905383361,"mallFavNum":0,"goodsFavNum":1,"inquiryNum":0,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":62640.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":32386922,"planName":"变光面罩_2020-06-14","businessType":1,"adId":196266187,"adName":"大屏变光_2020-06-14","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":1,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":136095854191,"goodsName":"自动变光电焊面罩氩弧焊头戴式焊工防护防紫外线烧焊护脸安全帽子","catId":11323,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-06-10/c1e607e0d6df3b60f240002a36ec20c0.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":63000,"maxGroupPrice":72000,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":29493930,"planName":"电车头盔_2020-05-19","businessType":1,"adId":196256797,"adName":"成人半盔_2020-06-23","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":2,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":137884434853,"goodsName":"电动自行车头盔夏季防晒电瓶车男士女款通用式轻便式夏天挡风半盔","catId":11883,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-06-30/7c9a36a286977a3f059b8fa52ae360fe.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":32800,"maxGroupPrice":32800,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":29493930,"planName":"电车头盔_2020-05-19","businessType":1,"adId":190623400,"adName":"成人半盔_2020-06-03","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":2,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":131981894794,"goodsName":"电动自行车头盔夏季防晒男士女款通用式电瓶车轻便式夏天挡风半盔","catId":11883,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-06-02/2fde58341b1dca92f990cb98b4a89035.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":31800,"maxGroupPrice":31800,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":29493930,"planName":"电车头盔_2020-05-19","businessType":1,"adId":186411892,"adName":"成人头盔_2020-05-25","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":2,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":126266054358,"goodsName":"【现货】电动车头盔摩托电瓶车夏四季骑行安全帽轻便式防晒全男女","catId":11883,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-05-23/ea1e1f9e6e1ec4aad1360d60b5bc187b.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":56000,"maxGroupPrice":56000,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":877,"click":27,"ctr":0.03078677309007982,"transactionCost":2740.0,"spend":5480,"roi":1.2992700729927007,"orderNum":2,"cpc":202.96296296296296,"cvr":0.07407407407407407,"gmv":7120,"cpm":6248.574686431015,"mallFavNum":0,"goodsFavNum":1,"inquiryNum":0,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":3560.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":28895648,"planName":"护目镜_2020-05-14","businessType":1,"adId":181551932,"adName":"百叶眼镜_2020-05-14","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":1,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":120376056801,"goodsName":"护目镜男女防尘防飞沫防唾沫风沙防护透明飞溅网红骑行学生防风镜","catId":17036,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-05-12/1617483d8989201bec3a19e31ab4cb5c.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":7800,"maxGroupPrice":15600,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":10075,"click":503,"ctr":0.049925558312655084,"transactionCost":4022.84,"spend":201142,"roi":2.6618011156297543,"orderNum":50,"cpc":399.8846918489066,"cvr":0.09940357852882704,"gmv":535400,"cpm":19964.466501240695,"mallFavNum":0,"goodsFavNum":13,"inquiryNum":7,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":10708.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":25408930,"planName":"电焊面罩_2020-04-10","businessType":1,"adId":158244540,"adName":"PP面罩_2020-04-18","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":1,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":1,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":1,"optimizationMethod":1,"optimizationBid":null,"optimizationEnableTime":"2020-07-15 09:33:31","optimizationStartTime":"2020-07-15 09:33:31","unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":102008752835,"goodsName":"烧电焊面罩护脸脸部头戴式焊工防烤护目焊接二保焊电焊机全脸眼镜","catId":11323,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-04-03/73404d831fc147e739a6b6f5bae28511.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":6500,"maxGroupPrice":29800,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":541,"click":23,"ctr":0.04251386321626617,"transactionCost":3266.5,"spend":6533,"roi":3.015459972447574,"orderNum":2,"cpc":284.04347826086956,"cvr":0.08695652173913043,"gmv":19700,"cpm":12075.785582255083,"mallFavNum":0,"goodsFavNum":1,"inquiryNum":1,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":9850.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":25408930,"planName":"电焊面罩_2020-04-10","businessType":1,"adId":153104204,"adName":"电焊面罩_2020-04-10","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":1,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":99858100334,"goodsName":"电焊面罩护脸焊工防护眼镜头戴式护目氩弧焊接二保焊烧电焊机牛皮","catId":11323,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-06-02/d1bbb4eb45bc4f50d4275a7324575060.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":5500,"maxGroupPrice":13500,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":712,"click":28,"ctr":0.03932584269662921,"transactionCost":5263.0,"spend":5263,"roi":2.413072392171765,"orderNum":1,"cpc":187.96428571428572,"cvr":0.03571428571428571,"gmv":12700,"cpm":7391.853932584269,"mallFavNum":0,"goodsFavNum":0,"inquiryNum":0,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":12700.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":23081620,"planName":"纯棉口罩_2020-03-14","businessType":1,"adId":137359140,"adName":"口罩_2020-03-14","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":1,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":93699810996,"goodsName":"口罩女防晒可水洗纯棉透气布口罩印花夏季薄款紫外线普通成人防尘","catId":17040,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-03-27/7ec6131e751e00c9999be9a78e46ea69.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":6830,"maxGroupPrice":19800,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":22634850,"planName":"日用品_2020-03-08","businessType":1,"adId":134742788,"adName":"硅胶门吸_2020-06-04","operatingStrategy":1,"planStrategy":1,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":0,"ocpcAccumulationStatus":null,"bid":100,"dataOperateStatus":2,"isDeleted":null,"optimizationHttpMessage":{"optimizationGoal":0,"optimizationMethod":0,"optimizationBid":null,"optimizationEnableTime":null,"optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":null},"adLivingHttpMessage":null,"goodsId":86906722647,"goodsName":"硅胶门吸免打孔静音吸入式卫生间浴室防撞门后强磁厕所门挡防撞墙","catId":10722,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-05-26/c33c6a4772505a22a2d4bbebbd00ebfb.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":6800,"maxGroupPrice":16800,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null}]}'
-    dt_str = '2020-07-17'
-    ad_type = 'search'
-    dt = AdUnit.str2datetime(dt_str)
-    datas = AdUnit.json2data(json_data, dt, ad_type)
-    with session_scope() as session:
-        result = AdUnit.query_datetime(session, dt)
-        ids = set()
-        for row in result:
-            if row.adType == ad_type:
-                ids.add(row.goodsId)
-        datas_filter = list()
-        for i in datas:
-            if str(i['adId']) not in ids:
-                datas_filter.append(i)
-        AdUnit.add(session, datas_filter)
-        print(f"ad_unit_add Success: {ad_type} 处理数据量：{len(datas_filter)}")
+class GoodsDetail(Base):
+    __tablename__ = 'goodsDetail'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    statDate = Column(DateTime)  # 时间
+    bianma = Column(String, ForeignKey("goods.bianma"))  # 商品编码
+    xiaoliang = Column(Integer)  # 销量
+    beizhu = Column(String)  # 备注
+
+    @classmethod
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data = GoodsDetail(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
+        if isinstance(data, list):
+            session.bulk_insert_mappings(GoodsDetail, data)
+
+    @classmethod
+    def query(cls, session):
+        return session.query(GoodsDetail).all()
+
+    @classmethod
+    def query_datetime(cls, session, dt_start, dt_end):
+        return session.query(GoodsDetail).filter(
+            GoodsDetail.statDate >= dt_start, GoodsDetail.statDate <= dt_end).all()
+
+    @classmethod
+    def query_datetime_bianma(cls, session, dt_start, dt_end, bianma):
+        return session.query(GoodsDetail).filter(
+            GoodsDetail.statDate >= dt_start, GoodsDetail.statDate <= dt_end).filter(GoodsDetail.bianma == bianma).all()
+
+    @classmethod
+    def delete_datetime_bianmas(cls, session, dt_start, dt_end, bianmas):
+        return session.query(GoodsDetail).filter(
+            GoodsDetail.statDate >= dt_start, GoodsDetail.statDate <= dt_end).filter(
+            GoodsDetail.bianma.in_(bianmas)
+        ).delete(synchronize_session=False)
 
 
-def test_AdUnit_scene():
-    json_data = '{"success":true,"errorCode":1000,"errorMsg":null,"result":[{"impression":37247,"click":313,"ctr":0.008403361344537815,"transactionCost":7780.75,"spend":62246,"roi":0.6734569289592905,"orderNum":8,"cpc":198.86900958466452,"cvr":0.025559105431309903,"gmv":41920,"cpm":1671.1681477702903,"mallFavNum":0,"goodsFavNum":9,"inquiryNum":0,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":5240.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":34794266,"planName":"电焊眼镜_自动_2020-07-09","businessType":1,"adId":208503298,"adName":"电焊眼镜_自动_2020-07-09","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":1,"ocpcAccumulationStatus":null,"bid":710,"dataOperateStatus":1,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4150,"optimizationEnableTime":"2020-07-09 23:30:11","optimizationStartTime":"2020-07-13 08:26:49","unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":4,"optimizationBid":330,"optimizationEnableTime":"2020-07-09 23:30:11"}]},"adLivingHttpMessage":null,"goodsId":149262309276,"goodsName":"电焊眼镜护目镜男防尘打磨飞溅强闪光烧焊工专用防紫外线劳保防护","catId":11325,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-07-09/b52463e065309977fe957b86ad25d6e2.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":5500,"maxGroupPrice":null,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":34460786,"planName":"双飞锁_自动_2020-07-06","businessType":1,"adId":206808067,"adName":"双飞锁_自动_2020-07-06","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":2,"ocpcAccumulationStatus":null,"bid":690,"dataOperateStatus":2,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4130,"optimizationEnableTime":"2020-07-06 18:14:19","optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":4,"optimizationBid":370,"optimizationEnableTime":"2020-07-06 18:15:35"}]},"adLivingHttpMessage":null,"goodsId":92403805012,"goodsName":"保险锁双飞牌老式三保险锁大门锁7710锁老门锁木门锁大门锁防盗锁","catId":10750,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-07-09/70a80c3285033b339245df911eb758ff.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":17400,"maxGroupPrice":null,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":1115,"click":36,"ctr":0.03228699551569507,"transactionCost":3617.3333333333335,"spend":10852,"roi":3.321968300774051,"orderNum":3,"cpc":301.44444444444446,"cvr":0.08333333333333333,"gmv":36050,"cpm":9732.735426008969,"mallFavNum":0,"goodsFavNum":1,"inquiryNum":0,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":12016.666666666666,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":34081991,"planName":"玻璃镜片_自动_2020-07-02","businessType":1,"adId":204874331,"adName":"玻璃镜片_自动_2020-07-02","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":1,"ocpcAccumulationStatus":null,"bid":710,"dataOperateStatus":1,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4150,"optimizationEnableTime":"2020-07-02 21:47:29","optimizationStartTime":"2020-07-11 08:28:43","unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":5,"optimizationBid":730,"optimizationEnableTime":"2020-07-02 21:47:29"},{"optimizationGoal":4,"optimizationBid":330,"optimizationEnableTime":"2020-07-02 21:47:29"}]},"adLivingHttpMessage":null,"goodsId":145842640027,"goodsName":"电焊高清黑玻璃片透明黑色7号8号9号镜片焊工焊接面罩护目防护帽","catId":11323,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-07-11/169834fe228be3ba2486e3ee04b408ac.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":7350,"maxGroupPrice":null,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":7057,"click":162,"ctr":0.022955930281989514,"transactionCost":47492.0,"spend":47492,"roi":1.035963951823465,"orderNum":1,"cpc":293.1604938271605,"cvr":0.006172839506172839,"gmv":49200,"cpm":6729.771857729914,"mallFavNum":0,"goodsFavNum":2,"inquiryNum":0,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":49200.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":32455421,"planName":"大屏面罩_自动_2020-06-15","businessType":1,"adId":202445036,"adName":"头盔面罩_自动_2020-06-27","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":2,"ocpcAccumulationStatus":null,"bid":750,"dataOperateStatus":2,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4770,"optimizationEnableTime":"2020-06-27 20:35:44","optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":5,"optimizationBid":770,"optimizationEnableTime":"2020-06-27 20:35:44"},{"optimizationGoal":4,"optimizationBid":370,"optimizationEnableTime":"2020-06-27 20:35:44"}]},"adLivingHttpMessage":null,"goodsId":106421165950,"goodsName":"电焊面罩自动变光防护护脸焊工头盔头戴式护目氩弧焊接焊烧电焊机","catId":11323,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-04-20/5e1519c66292cc0ed867fb1355afa3ec.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":54700,"maxGroupPrice":null,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":29493385,"planName":"自动_场景_头盔_2020-05-19","businessType":1,"adId":196617646,"adName":"星星半盔_自动_2020-06-15","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":2,"ocpcAccumulationStatus":null,"bid":730,"dataOperateStatus":2,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4100,"optimizationEnableTime":"2020-06-15 15:39:36","optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":5,"optimizationBid":810,"optimizationEnableTime":"2020-06-15 15:39:36"},{"optimizationGoal":4,"optimizationBid":410,"optimizationEnableTime":"2020-06-15 15:39:36"}]},"adLivingHttpMessage":null,"goodsId":137884434853,"goodsName":"电动自行车头盔夏季防晒电瓶车男士女款通用式轻便式夏天挡风半盔","catId":11883,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-06-30/7c9a36a286977a3f059b8fa52ae360fe.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":32800,"maxGroupPrice":null,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":2700,"click":32,"ctr":0.011851851851851851,"transactionCost":0.0,"spend":7944,"roi":0.0,"orderNum":0,"cpc":248.25,"cvr":0.0,"gmv":0,"cpm":2942.222222222222,"mallFavNum":0,"goodsFavNum":0,"inquiryNum":0,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":0.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":32455421,"planName":"大屏面罩_自动_2020-06-15","businessType":1,"adId":196609367,"adName":"大屏面罩_自动_2020-06-15","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":2,"ocpcAccumulationStatus":null,"bid":790,"dataOperateStatus":1,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":5650,"optimizationEnableTime":"2020-06-15 15:22:54","optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":5,"optimizationBid":910,"optimizationEnableTime":"2020-06-15 15:22:54"},{"optimizationGoal":4,"optimizationBid":460,"optimizationEnableTime":"2020-06-15 15:22:54"}]},"adLivingHttpMessage":null,"goodsId":136095854191,"goodsName":"自动变光电焊面罩氩弧焊头戴式焊工防护防紫外线烧焊护脸安全帽子","catId":11323,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-06-10/c1e607e0d6df3b60f240002a36ec20c0.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":63000,"maxGroupPrice":null,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":29493385,"planName":"自动_场景_头盔_2020-05-19","businessType":1,"adId":191780040,"adName":"星星半盔_自动_2020-06-06","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":2,"ocpcAccumulationStatus":null,"bid":730,"dataOperateStatus":2,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":5880,"optimizationEnableTime":"2020-06-06 14:40:07","optimizationStartTime":null,"unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":5,"optimizationBid":820,"optimizationEnableTime":"2020-06-06 14:40:07"},{"optimizationGoal":4,"optimizationBid":410,"optimizationEnableTime":"2020-06-06 14:40:07"}]},"adLivingHttpMessage":null,"goodsId":131981894794,"goodsName":"电动自行车头盔夏季防晒男士女款通用式电瓶车轻便式夏天挡风半盔","catId":11883,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-06-02/2fde58341b1dca92f990cb98b4a89035.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":31800,"maxGroupPrice":null,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":29493385,"planName":"自动_场景_头盔_2020-05-19","businessType":1,"adId":186397251,"adName":"成人全盔_自动_2020-05-25","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":1,"ocpcAccumulationStatus":null,"bid":570,"dataOperateStatus":2,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4510,"optimizationEnableTime":"2020-05-25 13:16:56","optimizationStartTime":"2020-06-11 04:52:54","unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":5,"optimizationBid":1200,"optimizationEnableTime":"2020-05-25 13:16:56"},{"optimizationGoal":4,"optimizationBid":530,"optimizationEnableTime":"2020-05-25 13:16:56"}]},"adLivingHttpMessage":null,"goodsId":126266054358,"goodsName":"【现货】电动车头盔摩托电瓶车夏四季骑行安全帽轻便式防晒全男女","catId":11883,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-05-23/ea1e1f9e6e1ec4aad1360d60b5bc187b.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":56000,"maxGroupPrice":null,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":28895860,"planName":"自动_场景_眼镜_2020-05-14","businessType":1,"adId":181552612,"adName":"百叶眼镜_自动_2020-05-14","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":1,"ocpcAccumulationStatus":null,"bid":530,"dataOperateStatus":2,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4100,"optimizationEnableTime":"2020-05-14 09:56:32","optimizationStartTime":"2020-05-20 04:57:01","unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":4,"optimizationBid":310,"optimizationEnableTime":"2020-05-17 22:09:45"}]},"adLivingHttpMessage":null,"goodsId":120376056801,"goodsName":"护目镜男女防尘防飞沫防唾沫风沙防护透明飞溅网红骑行学生防风镜","catId":17036,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-05-12/1617483d8989201bec3a19e31ab4cb5c.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":7800,"maxGroupPrice":null,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":194425,"click":1459,"ctr":0.007504178989327504,"transactionCost":4437.7558139534885,"spend":381647,"roi":2.444929476715394,"orderNum":86,"cpc":261.581220013708,"cvr":0.05894448252227553,"gmv":933100,"cpm":1962.9522952295229,"mallFavNum":1,"goodsFavNum":52,"inquiryNum":15,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":10850.0,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":24957431,"planName":"自动_场景_面罩_2020-04-06","businessType":1,"adId":153108203,"adName":"鬼脸面罩_自动_2020-04-10","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":1,"ocpcAccumulationStatus":null,"bid":500,"dataOperateStatus":1,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4270,"optimizationEnableTime":"2020-04-10 18:52:22","optimizationStartTime":"2020-04-13 04:21:52","unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":4,"optimizationBid":370,"optimizationEnableTime":"2020-05-17 22:08:15"}]},"adLivingHttpMessage":null,"goodsId":102008752835,"goodsName":"烧电焊面罩护脸脸部头戴式焊工防烤护目焊接二保焊电焊机全脸眼镜","catId":11323,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-04-03/73404d831fc147e739a6b6f5bae28511.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":6500,"maxGroupPrice":null,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":36981,"click":355,"ctr":0.009599524079932939,"transactionCost":4882.357142857143,"spend":68353,"roi":1.8148435328368908,"orderNum":14,"cpc":192.543661971831,"cvr":0.03943661971830986,"gmv":124050,"cpm":1848.3275195370595,"mallFavNum":0,"goodsFavNum":6,"inquiryNum":2,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":8860.714285714286,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":24957431,"planName":"自动_场景_面罩_2020-04-06","businessType":1,"adId":149841389,"adName":"牛皮面罩_自动_2020-04-06","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":1,"ocpcAccumulationStatus":null,"bid":500,"dataOperateStatus":1,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4230,"optimizationEnableTime":"2020-04-06 10:00:11","optimizationStartTime":"2020-04-09 04:14:19","unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":5,"optimizationBid":810,"optimizationEnableTime":"2020-05-17 22:08:54"},{"optimizationGoal":4,"optimizationBid":400,"optimizationEnableTime":"2020-05-17 22:08:54"}]},"adLivingHttpMessage":null,"goodsId":99858100334,"goodsName":"电焊面罩护脸焊工防护眼镜头戴式护目氩弧焊接二保焊烧电焊机牛皮","catId":11323,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-06-02/d1bbb4eb45bc4f50d4275a7324575060.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":5500,"maxGroupPrice":null,"status":1,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":23080494,"planName":"自动_场景_口罩_2020-03-23","businessType":1,"adId":137354387,"adName":"春季口罩_自动_2020-03-23","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":1,"ocpcAccumulationStatus":null,"bid":510,"dataOperateStatus":2,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4150,"optimizationEnableTime":"2020-03-14 20:27:12","optimizationStartTime":"2020-03-22 04:41:24","unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":5,"optimizationBid":730,"optimizationEnableTime":"2020-05-17 22:09:12"},{"optimizationGoal":4,"optimizationBid":330,"optimizationEnableTime":"2020-05-17 22:09:12"}]},"adLivingHttpMessage":null,"goodsId":93699810996,"goodsName":"口罩女防晒可水洗纯棉透气布口罩印花夏季薄款紫外线普通成人防尘","catId":17040,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-03-27/7ec6131e751e00c9999be9a78e46ea69.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":6830,"maxGroupPrice":null,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null},{"impression":null,"click":null,"ctr":null,"transactionCost":null,"spend":null,"roi":null,"orderNum":null,"cpc":null,"cvr":null,"gmv":null,"cpm":null,"mallFavNum":null,"goodsFavNum":null,"inquiryNum":null,"uniqueView":null,"rankAverage":null,"rankMedian":null,"avgPayAmount":null,"appActivateNum":null,"costPerAppActivate":null,"appActivateRate":null,"appRegisterNum":null,"costPerAppRegister":null,"appPayNum":null,"costPerAppPay":null,"mallId":530727389,"planId":22676721,"planName":"自动_场景_门吸_2020-02-06","businessType":1,"adId":134372914,"adName":"硅胶门吸_自动","operatingStrategy":1,"planStrategy":3,"productType":1,"productReferenceId":null,"landPageName":null,"dataAccumulationStatus":1,"ocpcAccumulationStatus":null,"bid":500,"dataOperateStatus":2,"isDeleted":0,"optimizationHttpMessage":{"optimizationGoal":2,"optimizationMethod":2,"optimizationBid":4100,"optimizationEnableTime":"2020-03-08 21:44:20","optimizationStartTime":"2020-06-07 04:14:07","unitSnapshotHttpMessage":null,"smartAccumulationBid":null,"optionalOptimizationBidOutputMessageList":[{"optimizationGoal":5,"optimizationBid":810,"optimizationEnableTime":"2020-06-03 11:05:02"},{"optimizationGoal":4,"optimizationBid":410,"optimizationEnableTime":"2020-06-03 11:05:02"}]},"adLivingHttpMessage":null,"goodsId":86906722647,"goodsName":"硅胶门吸免打孔静音吸入式卫生间浴室防撞门后强磁厕所门挡防撞墙","catId":10722,"catName":null,"thumbUrl":"http://t00img.yangkeduo.com/goods/images/2020-05-26/c33c6a4772505a22a2d4bbebbd00ebfb.jpeg","mallLogoUrl":"http://t16img.yangkeduo.com/pdd_ims/img_check/v2/FFF0E6E6882C0020200112155452281/723505056e38411698a4002c85425321.png","mallName":"安心居家五金店","minGroupPrice":6800,"maxGroupPrice":null,"status":2,"punishReason":"","suggestBid":null,"compensationHttpMessage":null}]}'
-    dt_str = '2020-07-17'
-    ad_type = 'scene'
-    dt = AdUnit.str2datetime(dt_str)
-    datas = AdUnit.json2data(json_data, dt, ad_type)
-    with session_scope() as session:
-        result = AdUnit.query_datetime(session, dt)
-        ids = set()
-        for row in result:
-            if row.adType == ad_type:
-                ids.add(row.goodsId)
-        datas_filter = list()
-        for i in datas:
-            if str(i['adId']) not in ids:
-                datas_filter.append(i)
-        AdUnit.add(session, datas_filter)
-        print(f"ad_unit_add Success: {ad_type} 处理数据量：{len(datas_filter)}")
+class RelateSkuGoods(Base):
+    __tablename__ = 'relateSkuGoods'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sku_bianma = Column(String, ForeignKey('pddSku.outerId'))
+    goods_bianma = Column(String, ForeignKey('goods.bianma'))
+    shuliang = Column(Integer, nullable=False)
+    pddSku_rs = relationship("PddSku", back_populates="goods_rs")
+    goods_rs = relationship("Goods", back_populates="pddSku_rs")
+
+    @classmethod
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data = RelateSkuGoods(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
+        if isinstance(data, list):
+            session.bulk_insert_mappings(RelateSkuGoods, data)
+
+    @classmethod
+    def delete(cls, session, data_id):
+        session.query(RelateSkuGoods).filter(RelateSkuGoods.id == data_id).delete()
+
+    @classmethod
+    def update(cls, session, data):
+        if isinstance(data, dict):
+            data = [data]
+        if isinstance(data, list):
+            session.bulk_update_mappings(RelateSkuGoods, data)
+
+    @classmethod
+    def query(cls, session):
+        return session.query(RelateSkuGoods).all()
+
+
+class PddOrder(Base):
+    __tablename__ = 'pddOrder'
+
+    # 商品 订单号 订单状态  商品数量(件) 是否审核中
+    dingdanhao = Column(String, primary_key=True)
+    shangpin = Column(String)
+    dingdanzhuangtai = Column(String)
+    shangpinshuliang = Column(Integer)
+    shifoushenhezhong = Column(String)
+
+    # 支付时间 承诺发货时间 发货时间 确认收货时间
+    zhifushijian = Column(DateTime)
+    chengnuofahuoshijian = Column(DateTime)
+    fahuoshijian = Column(DateTime)
+    querenfahuoshijian = Column(DateTime)
+
+    # 商品id 商品规格 样式ID 商家编码-SKU维度 商家编码-商品维度
+    shangpinid = Column(String)
+    shangpinguige = Column(String)
+    yangshiid = Column(String)
+    skubianma = Column(String)
+    shangpinbianma = Column(String)
+
+    # 商家备注 买家留言 售后状态
+    shangjiabeizhu = Column(String)
+    maijialiuyan = Column(String)
+    shouhouzhuangtai = Column(String)
+
+    # 商品总价(元) 店铺优惠折扣(元) 平台优惠折扣(元) 邮费(元) 用户实付金额(元) 商家实收金额(元)
+    shangpinzongjia = Column(Float)
+    dianpuyouhuizhekou = Column(Float)
+    pingtaiyouhuizhekou = Column(Float)
+    youfei = Column(Float)
+    yonghushifujine = Column(Float)
+    shangjiashishoujine = Column(Float)
+
+    # 快递单号 快递公司 收货人 手机 省 市 区 详细地址
+    kuaididanhao = Column(String)
+    kuaidigongsi = Column(String)
+    shouhuoren = Column(String)
+    shouji = Column(String)
+    sheng = Column(String)
+    shi = Column(String)
+    qu = Column(String)
+    xiangxidizhi = Column(String)
+
+    # 是否抽奖或0元试用
+    shifouchoujianghuoshiyong = Column(String)
+
+    # 是否去库存 更新时间
+    shifouqukucun = Column(String, nullable=False, default='否')
+    gengxinshijian = Column(DateTime)
+
+    @staticmethod
+    def str2date(date_str):
+        try:
+            return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        except Exception as why:
+            return None
+
+    @classmethod
+    def csv2order(cls, csv_file):
+        """
+        只处理已经发货的订单
+        :param csv_file:
+        :return:
+        """
+        pd_data = pd.read_csv(csv_file, encoding='utf-8')
+        order_list = list()
+        for _, row in pd_data.iterrows():
+            fahuoshijian = row['发货时间']
+            if len(fahuoshijian) <= 1:
+                continue
+            order = dict(
+                shangpin=row['商品'],
+                dingdanhao=row['订单号'],
+                dingdanzhuangtai=row['订单状态'],
+                shangpinshuliang=row['商品数量(件)'],
+                shifoushenhezhong=row['是否审核中'],
+
+                zhifushijian=cls.str2date(row['支付时间']),
+                chengnuofahuoshijian=cls.str2date(row['承诺发货时间']),
+                fahuoshijian=cls.str2date(row['发货时间']),
+                querenfahuoshijian=cls.str2date(row['确认收货时间']),
+
+                shangpinid=row['商品id'],
+                shangpinguige=row['商品规格'],
+                yangshiid=row['样式ID'],
+                skubianma=row['商家编码-SKU维度'].strip(),
+                shangpinbianma=row['商家编码-商品维度'].strip(),
+
+                shangjiabeizhu=row['商家备注'],
+                maijialiuyan=row['买家留言'],
+                shouhouzhuangtai=row['售后状态'],
+
+                shangpinzongjia=row['商品总价(元)'],
+                dianpuyouhuizhekou=row['店铺优惠折扣(元)'],
+                pingtaiyouhuizhekou=row['平台优惠折扣(元)'],
+                youfei=row['邮费(元)'],
+                yonghushifujine=row['用户实付金额(元)'],
+                shangjiashishoujine=row['商家实收金额(元)'],
+
+                kuaididanhao=row['快递单号'],
+                kuaidigongsi=row['快递公司'],
+                sheng=row['省'],
+                shi=row['市'],
+                qu=row['区'],
+
+                shifouchoujianghuoshiyong=row['是否抽奖或0元试用'],
+            )
+            order_list.append(order)
+        return order_list
+
+    @classmethod
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data = PddOrder(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
+        elif isinstance(data, list):
+            session.bulk_insert_mappings(PddOrder, data)
+
+    @classmethod
+    def query_fahuoshijian(cls, session, datetime_start, datetime_end):
+        orders = session.query(PddOrder).filter(PddOrder.fahuoshijian >= datetime_start,
+                                                PddOrder.fahuoshijian <= datetime_end).all()
+        return orders
+
+    @classmethod
+    def query_dingdanhao(cls, session, dingdanhao):
+        return session.query(PddOrder).filter(PddOrder.dingdanhao == dingdanhao).first()
 
 
 def test_paid_free_order():
@@ -239,3 +622,5 @@ def test_paid_free_order():
 
 if __name__ == '__main__':
     Base.metadata.create_all(engine)
+    # test_PddGoods()
+    # test_PddSku()
