@@ -239,12 +239,12 @@ class GoodsDetailApi(Resource):
         data = request.json
         dt_start = datetime.strptime(data['datetimeStart'], "%Y-%m-%d")
         dt_end = datetime.strptime(data['datetimeEnd'] + ' 23:59:59', "%Y-%m-%d %H:%M:%S")
-        sku_count = defaultdict(int)
         while dt_start <= dt_end:
             dt_today_s = dt_start
-            dt_today_e = dt_start
+            dt_today_e = dt_start + relativedelta(days=1) - relativedelta(seconds=1)
             with session_scope() as session:
-                result = PddOrder.query_fahuoshijian(session, dt_start, dt_end)
+                sku_count = defaultdict(int)
+                result = PddOrder.query_fahuoshijian(session, dt_today_s, dt_today_e)
                 print(f'{dt_start} 订单数量：{len(result)}')
                 if not result:
                     return
