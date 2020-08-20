@@ -296,8 +296,8 @@ class GoodsKuCunApi(Resource):
             goods_result = Goods.query(session)
             kucun_list = list()
             for goods in goods_result:
-                dt_start_tmp = max(goods.gengxinshijian, dt_start)
-                # dt_start_tmp = dt_start # 恢复库存用
+                dt_start_tmp = max(goods.gengxinshijian, dt_start)  # 不重复处理更新时间之前的订单
+                dt_end_tmp = datetime(1970, 1, 1)
                 goods_detail_result = GoodsDetail.query_datetime_bianma(session, dt_start_tmp, dt_end, goods.bianma)
                 goods_info = {
                     'bianma': goods.bianma,
@@ -305,9 +305,10 @@ class GoodsKuCunApi(Resource):
                 xiaoliang = 0
                 for goods_detail in goods_detail_result:
                     xiaoliang += goods_detail.xiaoliang
+                    dt_end_tmp = max(dt_end_tmp, goods_detail.statDate)  # 将更新时间修改为最新的销量统计时间
                 goods_info["kucun"] = goods.kucun - xiaoliang
                 # goods_info["kucun"] = goods.kucun + xiaoliang  # 恢复库存用
-                goods_info["gengxinshijian"] = max(goods.gengxinshijian, dt_end)
+                goods_info["gengxinshijian"] = max(goods.gengxinshijian, dt_end_tmp)
                 kucun_list.append(goods_info)
             if kucun_list:
                 Goods.update(session, kucun_list)
@@ -364,7 +365,7 @@ api.add_resource(GoodsKuCunApi, '/erp/goodsKuCun')
 api.add_resource(RelateSkuGoodsApi, '/erp/relateSkuGoods')
 
 if __name__ == '__main__':
-    host = '192.168.124.21'
+    # host = '192.168.124.21'
     # host = '192.168.8.102'
-    # host = '192.168.0.170'
+    host = '192.168.0.170'
     app.run(debug=True, host=host, port=5000)
