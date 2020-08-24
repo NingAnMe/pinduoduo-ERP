@@ -128,7 +128,7 @@ class PddOrderApi(Resource):
         orders = PddOrder.csv2order(order_file)
         if len(orders) <= 0:
             print('没有有效的订单')
-            return -1
+            return std_error
         else:
             print(f'订单总量：{len(orders)}')
 
@@ -170,6 +170,8 @@ class PddOrderApi(Resource):
 class GoodsApi(Resource):
 
     def get(self):
+        days_mean = 4  # 计算最近几天的平均销量
+        days_remain = 7  # 库存不够7天使用的时候，进行预警
         args = request.args
         with session_scope() as session:
             pdd_sku_outer_id = args.get('pddSkuOuterId')
@@ -183,12 +185,18 @@ class GoodsApi(Resource):
                         data['sku_bianma'] = rs_sku_goods.sku_bianma
                         data['goods_bianma'] = rs_sku_goods.goods_bianma
                         data['id'] = rs_sku_goods.id
+                        warning_info = rs_sku_goods.goods_rs.get_warning(session, days_mean, days_remain)
+                        data = dict(data, **warning_info)
                         content.append(data)
             else:
                 results = Goods.query(session)
                 content = list()
                 if results is not None:
-                    content = [i.to_dict() for i in results]
+                    for goods in results:
+                        data = goods.to_dict()
+                        warning_info = goods.get_warning(session, days_mean, days_remain)
+                        data = dict(data, **warning_info)
+                        content.append(data)
             content = sorted(content, key=lambda x: x['bianma'])
             return {
                 'content': content,
@@ -360,12 +368,12 @@ api.add_resource(PddSkuApi, '/erp/pddSku')
 api.add_resource(PddOrderApi, '/erp/pddOrder')
 api.add_resource(GoodsApi, '/erp/goods')
 api.add_resource(GoodsDetailApi, '/erp/goodsDetail')
-api.add_resource(GoodsGengXinShiJian, '/erp/GengXinShiJian')
+api.add_resource(GoodsGengXinShiJian, '/erp/GoodsGengXinShiJian')
 api.add_resource(GoodsKuCunApi, '/erp/goodsKuCun')
 api.add_resource(RelateSkuGoodsApi, '/erp/relateSkuGoods')
 
 if __name__ == '__main__':
-    # host = '192.168.124.21'
+    host = '192.168.124.21'
     # host = '192.168.8.102'
-    host = '192.168.0.170'
+    # host = '192.168.0.170'
     app.run(debug=True, host=host, port=5000)

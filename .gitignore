@@ -134,3 +134,7 @@ test/
 test.json
 
 json_data.py
+/browsermob-proxy-2.1.4/
+/chromedriver_win32/
+/geckodriver-v0.27.0-win64/
+/aid/

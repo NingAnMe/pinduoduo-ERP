@@ -352,6 +352,31 @@ class Goods(Base):
     pddSku_rs = relationship("RelateSkuGoods", back_populates='goods_rs')
     goodsDetail_rs = relationship('GoodsDetail', backref='goods_rs')
 
+    def get_warning(self, session, days_mean: int, days_remain: int):
+        """
+        获取几天内的平均销量、库存足够的时间、是否警告
+        :param days_remain:
+        :param session:
+        :param days_mean:
+        :return:
+        """
+        goods_detail_result = GoodsDetail.query_order_by_datetime_bianma(
+            session, self.bianma)[:days_mean]
+        count = 1
+        for goods_detail in goods_detail_result:
+            count += goods_detail.xiaoliang
+        xiaoliang_mean = count / days_mean
+        remain_days = int(self.kucun / xiaoliang_mean)
+        if remain_days < days_remain:
+            warning = True
+        else:
+            warning = False
+        return {
+            'xiaoliang_mean': xiaoliang_mean,
+            'remain_days': remain_days,
+            'warning': warning,
+        }
+
     @classmethod
     def add(cls, session, data):
         if isinstance(data, dict):
@@ -426,6 +451,11 @@ class GoodsDetail(Base):
     @classmethod
     def query(cls, session):
         return session.query(GoodsDetail).all()
+
+    @classmethod
+    def query_order_by_datetime_bianma(cls, session, bianma):
+        return session.query(GoodsDetail).filter(GoodsDetail.bianma == bianma)\
+            .order_by(GoodsDetail.statDate.desc()).all()
 
     @classmethod
     def query_datetime(cls, session, dt_start, dt_end):
