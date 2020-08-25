@@ -41,10 +41,11 @@ class PddGoods(Base):
 
     @classmethod
     def str2datetime(cls, date_str):
-        try:
-            return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-        except Exception as why:
+        date_str = str(date_str)
+        if len(date_str) != 15:
             return None
+        else:
+            return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
 
     @classmethod
     def json2data(cls, json_file):
@@ -123,10 +124,11 @@ class PddSku(Base):
 
     @classmethod
     def str2datetime(cls, date_str):
-        try:
-            return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-        except Exception as why:
+        date_str = str(date_str)
+        if len(date_str) != 15:
             return None
+        else:
+            return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
 
     @classmethod
     def json2data(cls, json_file):
@@ -268,7 +270,7 @@ class PddGoodsDetail(Base):
                     row.paidOrdrCnt = goods_paid_order[row.goodsId]
                 row.freeOrdrCnt = row.payOrdrGoodsQty - row.paidOrdrCnt
                 count += 1
-            print(f'paid_free_order Success: 处理数据量：{count}')
+            print('paid_free_order Success: 处理数据量：{count}'.format(count=count))
 
 
 class PddAdUnit(Base):
@@ -337,180 +339,6 @@ class PddAdUnit(Base):
         return session.query(PddAdUnit).filter(PddAdUnit.statDate == dt).all()
 
 
-class Goods(Base):
-    __tablename__ = 'goods'
-
-    # 商品编码
-    bianma = Column(String, primary_key=True)
-    mingcheng = Column(String)
-    danwei = Column(String, default='个')
-    kucun = Column(Integer, nullable=False, default=0)
-    junjia = Column(Float, nullable=False, default=0)
-    beizhu = Column(String)
-    gengxinshijian = Column(DateTime)
-
-    pddSku_rs = relationship("RelateSkuGoods", back_populates='goods_rs')
-    goodsDetail_rs = relationship('GoodsDetail', backref='goods_rs')
-
-    def get_warning(self, session, days_mean: int, days_remain: int):
-        """
-        获取几天内的平均销量、库存足够的时间、是否警告
-        :param days_remain:
-        :param session:
-        :param days_mean:
-        :return:
-        """
-        goods_detail_result = GoodsDetail.query_order_by_datetime_bianma(
-            session, self.bianma)[:days_mean]
-        count = 1
-        for goods_detail in goods_detail_result:
-            count += goods_detail.xiaoliang
-        xiaoliang_mean = count / days_mean
-        remain_days = int(self.kucun / xiaoliang_mean)
-        if remain_days < days_remain:
-            warning = True
-        else:
-            warning = False
-        return {
-            'xiaoliang_mean': xiaoliang_mean,
-            'remain_days': remain_days,
-            'warning': warning,
-        }
-
-    @classmethod
-    def add(cls, session, data):
-        if isinstance(data, dict):
-            data = Goods(**data)
-            session.add(data)
-            session.flush()
-            return data.to_dict()
-        if isinstance(data, list):
-            session.bulk_insert_mappings(Goods, data)
-
-    @classmethod
-    def delete(cls, session, data_id):
-        session.query(Goods).filter(Goods.bianma == data_id).delete()
-
-    @classmethod
-    def update(cls, session, data):
-        if isinstance(data, dict):
-            data = [data]
-        if isinstance(data, list):
-            session.bulk_update_mappings(Goods, data)
-
-    @classmethod
-    def query(cls, session):
-        return session.query(Goods).all()
-
-    @classmethod
-    def query_bianma_in_(cls, session, bianmas):
-        return session.query(Goods).filter(Goods.bianma.in_(bianmas)).all()
-
-    @classmethod
-    def goods_add_csv(cls, goods_file):
-        """
-        将商品信息导入数据库
-        :param goods_file: csv文件
-        :return:
-        """
-        goods_info = pd.read_csv(goods_file, index_col=None, encoding='GBK')
-        for _, g in goods_info.iterrows():
-            print(g.to_dict())
-
-        with session_scope() as session:
-            goods = Goods.query(session)
-            bianmas = set()
-            if goods is not None:
-                for g in goods:
-                    bianmas.add(g.bianma)
-
-            for _, g in goods_info.iterrows():
-                if str(g.bianma) not in bianmas:
-                    g_dict = g.to_dict()
-                    Goods.add(session, g_dict)
-
-
-class GoodsDetail(Base):
-    __tablename__ = 'goodsDetail'
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    statDate = Column(DateTime)  # 时间
-    bianma = Column(String, ForeignKey("goods.bianma"))  # 商品编码
-    xiaoliang = Column(Integer)  # 销量
-    beizhu = Column(String)  # 备注
-
-    @classmethod
-    def add(cls, session, data):
-        if isinstance(data, dict):
-            data = GoodsDetail(**data)
-            session.add(data)
-            session.flush()
-            return data.to_dict()
-        if isinstance(data, list):
-            session.bulk_insert_mappings(GoodsDetail, data)
-
-    @classmethod
-    def query(cls, session):
-        return session.query(GoodsDetail).all()
-
-    @classmethod
-    def query_order_by_datetime_bianma(cls, session, bianma):
-        return session.query(GoodsDetail).filter(GoodsDetail.bianma == bianma)\
-            .order_by(GoodsDetail.statDate.desc()).all()
-
-    @classmethod
-    def query_datetime(cls, session, dt_start, dt_end):
-        return session.query(GoodsDetail).filter(
-            GoodsDetail.statDate >= dt_start, GoodsDetail.statDate <= dt_end).all()
-
-    @classmethod
-    def query_datetime_bianma(cls, session, dt_start, dt_end, bianma):
-        return session.query(GoodsDetail).filter(
-            GoodsDetail.statDate >= dt_start, GoodsDetail.statDate <= dt_end).filter(GoodsDetail.bianma == bianma).all()
-
-    @classmethod
-    def delete_datetime_bianmas(cls, session, dt_start, dt_end, bianmas):
-        return session.query(GoodsDetail).filter(
-            GoodsDetail.statDate >= dt_start, GoodsDetail.statDate <= dt_end).filter(
-            GoodsDetail.bianma.in_(bianmas)
-        ).delete(synchronize_session=False)
-
-
-class RelateSkuGoods(Base):
-    __tablename__ = 'relateSkuGoods'
-
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    sku_bianma = Column(String, ForeignKey('pddSku.outerId'))
-    goods_bianma = Column(String, ForeignKey('goods.bianma'))
-    shuliang = Column(Integer, nullable=False)
-    pddSku_rs = relationship("PddSku", back_populates="goods_rs")
-    goods_rs = relationship("Goods", back_populates="pddSku_rs")
-
-    @classmethod
-    def add(cls, session, data):
-        if isinstance(data, dict):
-            data = RelateSkuGoods(**data)
-            session.add(data)
-            session.flush()
-            return data.to_dict()
-        if isinstance(data, list):
-            session.bulk_insert_mappings(RelateSkuGoods, data)
-
-    @classmethod
-    def delete(cls, session, data_id):
-        session.query(RelateSkuGoods).filter(RelateSkuGoods.id == data_id).delete()
-
-    @classmethod
-    def update(cls, session, data):
-        if isinstance(data, dict):
-            data = [data]
-        if isinstance(data, list):
-            session.bulk_update_mappings(RelateSkuGoods, data)
-
-    @classmethod
-    def query(cls, session):
-        return session.query(RelateSkuGoods).all()
-
-
 class PddOrder(Base):
     __tablename__ = 'pddOrder'
 
@@ -566,10 +394,11 @@ class PddOrder(Base):
 
     @staticmethod
     def str2date(date_str):
-        try:
-            return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
-        except Exception as why:
+        date_str = str(date_str)
+        if len(date_str) != 15:
             return None
+        else:
+            return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
 
     @classmethod
     def csv2order(cls, csv_file):
@@ -643,6 +472,234 @@ class PddOrder(Base):
     @classmethod
     def query_dingdanhao(cls, session, dingdanhao):
         return session.query(PddOrder).filter(PddOrder.dingdanhao == dingdanhao).first()
+
+
+class Goods(Base):
+    __tablename__ = 'goods'
+
+    # 商品编码
+    bianma = Column(String, primary_key=True)
+    mingcheng = Column(String)
+    danwei = Column(String, default='个')
+    kucun = Column(Integer, nullable=False, default=0)
+    junjia = Column(Float, nullable=False, default=0)
+    beizhu = Column(String)
+    gengxinshijian = Column(DateTime)
+
+    pddSku_rs = relationship("RelateSkuGoods", back_populates='goods_rs')
+    goodsDetail_rs = relationship('GoodsDetail', backref='goods_rs')
+    goodsOrder_rs = relationship('GoodsOrder', backref='goods_rs')
+
+    def get_warning(self, session, days_mean: int, days_remain: int):
+        """
+        获取几天内的平均销量、库存足够的时间、是否警告
+        :param days_remain:
+        :param session:
+        :param days_mean:
+        :return:
+        """
+        goods_detail_result = GoodsDetail.query_order_by_datetime_bianma(
+            session, self.bianma)[:days_mean]
+        count = 1
+        for goods_detail in goods_detail_result:
+            count += goods_detail.xiaoliang
+        xiaoliang_mean = count / days_mean
+        remain_days = int(self.kucun / xiaoliang_mean)
+        if remain_days < days_remain:
+            warning = True
+        else:
+            warning = False
+        return {
+            'xiaoliang_mean': xiaoliang_mean,
+            'remain_days': remain_days,
+            'warning': warning,
+        }
+
+    @classmethod
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data = Goods(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
+        if isinstance(data, list):
+            session.bulk_insert_mappings(Goods, data)
+
+    @classmethod
+    def delete(cls, session, data_id):
+        session.query(Goods).filter(Goods.bianma == data_id).delete()
+
+    @classmethod
+    def update(cls, session, data):
+        if isinstance(data, dict):
+            bianma = data.pop('bianma')
+            session.query(Goods).filter(Goods.bianma == bianma).update(data)
+            session.flush()
+            return session.query(Goods).filter(Goods.bianma == bianma).first().to_dict()
+        if isinstance(data, list):
+            session.bulk_update_mappings(Goods, data)
+
+    @classmethod
+    def query(cls, session):
+        return session.query(Goods).all()
+
+    @classmethod
+    def query_bianma_in_(cls, session, bianmas):
+        return session.query(Goods).filter(Goods.bianma.in_(bianmas)).all()
+
+    @classmethod
+    def goods_add_csv(cls, goods_file):
+        """
+        将商品信息导入数据库
+        :param goods_file: csv文件
+        :return:
+        """
+        goods_info = pd.read_csv(goods_file, index_col=None, encoding='GBK')
+        for _, g in goods_info.iterrows():
+            print(g.to_dict())
+
+        with session_scope() as session:
+            goods = Goods.query(session)
+            bianmas = set()
+            if goods is not None:
+                for g in goods:
+                    bianmas.add(g.bianma)
+
+            for _, g in goods_info.iterrows():
+                if str(g.bianma) not in bianmas:
+                    g_dict = g.to_dict()
+                    Goods.add(session, g_dict)
+
+
+class RelateSkuGoods(Base):
+    __tablename__ = 'relateSkuGoods'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    sku_bianma = Column(String, ForeignKey('pddSku.outerId'))
+    goods_bianma = Column(String, ForeignKey('goods.bianma'))
+    shuliang = Column(Integer, nullable=False)
+    pddSku_rs = relationship("PddSku", back_populates="goods_rs")
+    goods_rs = relationship("Goods", back_populates="pddSku_rs")
+
+    @classmethod
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data = RelateSkuGoods(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
+        if isinstance(data, list):
+            session.bulk_insert_mappings(RelateSkuGoods, data)
+
+    @classmethod
+    def delete(cls, session, data_id):
+        session.query(RelateSkuGoods).filter(RelateSkuGoods.id == data_id).delete()
+
+    @classmethod
+    def update(cls, session, data):
+        if isinstance(data, dict):
+            data = [data]
+        if isinstance(data, list):
+            session.bulk_update_mappings(RelateSkuGoods, data)
+
+    @classmethod
+    def query(cls, session):
+        return session.query(RelateSkuGoods).all()
+
+
+class GoodsDetail(Base):
+    __tablename__ = 'goodsDetail'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    statDate = Column(DateTime)  # 时间
+    bianma = Column(String, ForeignKey("goods.bianma"))  # 商品编码
+    xiaoliang = Column(Integer)  # 销量
+    beizhu = Column(String)  # 备注
+
+    @classmethod
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data = GoodsDetail(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
+        if isinstance(data, list):
+            session.bulk_insert_mappings(GoodsDetail, data)
+
+    @classmethod
+    def query(cls, session):
+        return session.query(GoodsDetail).all()
+
+    @classmethod
+    def query_order_by_datetime_bianma(cls, session, bianma):
+        return session.query(GoodsDetail).filter(GoodsDetail.bianma == bianma)\
+            .order_by(GoodsDetail.statDate.desc()).all()
+
+    @classmethod
+    def query_datetime(cls, session, dt_start, dt_end):
+        return session.query(GoodsDetail).filter(
+            GoodsDetail.statDate >= dt_start, GoodsDetail.statDate <= dt_end).all()
+
+    @classmethod
+    def query_datetime_bianma(cls, session, dt_start, dt_end, bianma):
+        return session.query(GoodsDetail).filter(
+            GoodsDetail.statDate >= dt_start, GoodsDetail.statDate <= dt_end).filter(GoodsDetail.bianma == bianma).all()
+
+    @classmethod
+    def delete_datetime_bianmas(cls, session, dt_start, dt_end, bianmas):
+        return session.query(GoodsDetail).filter(
+            GoodsDetail.statDate >= dt_start, GoodsDetail.statDate <= dt_end).filter(
+            GoodsDetail.bianma.in_(bianmas)
+        ).delete(synchronize_session=False)
+
+
+class GoodsOrder(Base):
+    """
+    进货单
+    """
+    __tablename__ = 'goodsOrder'
+
+    dingDanHao = Column(Integer, primary_key=True, autoincrement=True)  # 订单号
+    bianMa = Column(String, ForeignKey("goods.bianma"), nullable=False)  # 商品编码
+    danWei = Column(String, default='个')  # 单位
+    shuLiang = Column(Integer, nullable=False)  # 数量
+    shangPinJiaZhi = Column(Float, nullable=False)  # 商品价值
+    yunFei = Column(Float, default=0)  # 运输费用
+    zongJia = Column(Float, nullable=False)  # 总价 = 商品价值 + 运费费用，自动计算
+    danJia = Column(Float, nullable=False)  # 单价 = 总价 / 数量，自动计算
+    jinHuoDate = Column(DateTime, nullable=False)  # 进货时间
+    beiZhu = Column(String)  # 备注
+
+    @classmethod
+    def add(cls, session, data):
+        if isinstance(data, dict):
+            data = GoodsOrder(**data)
+            session.add(data)
+            session.flush()
+            return data.to_dict()
+        if isinstance(data, list):
+            session.bulk_insert_mappings(GoodsOrder, data)
+            return data
+
+    @classmethod
+    def query(cls, session):
+        return session.query(GoodsOrder).all()
+
+    @classmethod
+    def query_dingdanhao(cls, session, dingdanhao):
+        return session.query(GoodsOrder).filter(GoodsOrder.dingDanHao == dingdanhao).first()
+
+    @classmethod
+    def query_datetime(cls, session, dt_start, dt_end):
+        return session.query(GoodsOrder).filter(
+            GoodsOrder.jinHuoDate >= dt_start, GoodsOrder.jinHuoDate <= dt_end).all()
+
+    @classmethod
+    def delete(cls, session, dingdanhao):
+        session.query(GoodsOrder).filter(GoodsOrder.dingDanHao == dingdanhao).delete()
+        return {
+            "dingDanHao": dingdanhao,
+            "message": "成功删除"
+        }
 
 
 def test_paid_free_order():

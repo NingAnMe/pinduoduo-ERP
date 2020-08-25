@@ -32,6 +32,22 @@ std_success = {
 }
 
 
+def get_std_error(content=None, message='请求失败', code=1000):
+    return {
+        'content': content,
+        'message': message,
+        'code': code
+    }
+
+
+def get_std_success(content=None, message='请求成功', code=0):
+    return {
+        'content': content,
+        'message': message,
+        'code': code
+    }
+
+
 class PddGoodsApi(Resource):
 
     def get(self):
@@ -47,12 +63,9 @@ class PddGoodsApi(Resource):
                     pdd_goods_data = row.to_dict()
                     content.append(pdd_goods_data)
                 content = sorted(content, key=lambda x: x['outerId'])
-                return {
-                    'content': content,
-                    'message': '请求成功',
-                    'code': 0
-                }
-        return std_error
+                return get_std_success(content)
+            else:
+                return get_std_error("没有找到商品数据")
 
     def post(self):
         data = request.json
@@ -363,17 +376,100 @@ class RelateSkuGoodsApi(Resource):
             return std_error
 
 
+class GoodsOrderApi(Resource):
+
+    def get(self):
+        data = request.args
+        dt_start = data.get('datetimeStart')
+        dt_end = data.get('datetimeEnd')
+        if dt_start is None and dt_end is None:
+            dt_start = datetime.strptime(dt_start, "%Y-%m-%d")
+            dt_end = datetime.strptime(dt_end, "%Y-%m-%d")
+            with session_scope() as session:
+                result = GoodsOrder.query_datetime(session, dt_start, dt_end)
+                content = list()
+                for row in result:
+                    content.append(row.to_dict())
+                return get_std_success(content)
+        else:
+            with session_scope() as session:
+                result = GoodsOrder.query(session)
+                content = list()
+                for row in result:
+                    content.append(row.to_dict())
+                return get_std_success(content)
+
+    def post(self):
+        data = request.json
+        if data is not None:
+            with session_scope() as session:
+                if 'dingDanHao' in data:
+                    data.pop('dingDanHao')
+                # 进货单入库
+                data["zongJia"] = float(data['shangPinJiaZhi']) + float(data.get('yunFei', 0))
+                data["danJia"] = data["zongJia"] / int(data['shuLiang'])
+                data["jinHuoDate"] = datetime.strptime(data["jinHuoDate"], "%Y-%m-%d")
+                goods_order_add = GoodsOrder.add(session, data=data)
+                # 修改商品的库存
+                bianmas = [data['bianMa']]
+                goods_query = Goods.query_bianma_in_(session, bianmas)
+                goods = goods_query[0]
+                goods_dict = goods.to_dict()
+                goods_dict['kucun'] = goods.kucun + int(data['shuLiang'])
+                goods_dict.pop('gengxinshijian')
+                goods_update = Goods.update(session, goods_dict)
+
+                content = {
+                    'goodsOrder': goods_order_add,
+                    'goods': goods_update,
+                }
+                return get_std_success(content)
+        else:
+            return get_std_error("没有成功入库")
+
+    def delete(self):
+        data = request.args
+        if data is not None:
+            with session_scope() as session:
+                if 'dingDanHao' in data:
+                    dingdanhao = int(data['dingDanHao'])
+                    # 修改商品的库存
+                    goods_order_query = GoodsOrder.query_dingdanhao(session, dingdanhao)
+                    goods_order_dict = goods_order_query.to_dict()
+
+                    bianmas = [goods_order_dict['bianMa']]
+                    goods_result = Goods.query_bianma_in_(session, bianmas)
+                    goods = goods_result[0]
+                    goods_dict = goods.to_dict()
+                    goods_dict['kucun'] = goods.kucun - goods_order_dict["shuLiang"]
+                    goods_dict.pop('gengxinshijian')
+                    goods_result = Goods.update(session, goods_dict)
+                    # 删除入库单
+                    GoodsOrder.delete(session, dingdanhao)
+                    content = {
+                        'goodsOrder': goods_order_dict,
+                        'goods': goods_result,
+                    }
+                    return get_std_success(content)
+                else:
+                    return get_std_error("没有找到订单号参数:dingDanHao")
+        else:
+            return get_std_error("没有获取到请求参数")
+
+
 api.add_resource(PddGoodsApi, '/erp/pddGoods')
 api.add_resource(PddSkuApi, '/erp/pddSku')
 api.add_resource(PddOrderApi, '/erp/pddOrder')
 api.add_resource(GoodsApi, '/erp/goods')
 api.add_resource(GoodsDetailApi, '/erp/goodsDetail')
-api.add_resource(GoodsGengXinShiJian, '/erp/GoodsGengXinShiJian')
+api.add_resource(GoodsOrderApi, '/erp/goodsOrder')
+api.add_resource(GoodsGengXinShiJian, '/erp/goodsGengXinShiJian')
 api.add_resource(GoodsKuCunApi, '/erp/goodsKuCun')
 api.add_resource(RelateSkuGoodsApi, '/erp/relateSkuGoods')
 
 if __name__ == '__main__':
-    host = '192.168.124.21'
+    # host = '192.168.124.21'
+    host = '192.168.43.213'
     # host = '192.168.8.102'
     # host = '192.168.0.170'
     app.run(debug=True, host=host, port=5000)
