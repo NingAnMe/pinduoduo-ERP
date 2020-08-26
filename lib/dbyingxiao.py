@@ -42,10 +42,11 @@ class PddGoods(Base):
     @classmethod
     def str2datetime(cls, date_str):
         date_str = str(date_str)
-        if len(date_str) != 15:
-            return None
-        else:
+        try:
             return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        except Exception as why:
+            str(why)
+            return None
 
     @classmethod
     def json2data(cls, json_file):
@@ -125,10 +126,11 @@ class PddSku(Base):
     @classmethod
     def str2datetime(cls, date_str):
         date_str = str(date_str)
-        if len(date_str) != 15:
-            return None
-        else:
+        try:
             return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        except Exception as why:
+            str(why)
+            return None
 
     @classmethod
     def json2data(cls, json_file):
@@ -395,10 +397,11 @@ class PddOrder(Base):
     @staticmethod
     def str2date(date_str):
         date_str = str(date_str)
-        if len(date_str) != 15:
-            return None
-        else:
+        try:
             return datetime.strptime(date_str, '%Y-%m-%d %H:%M:%S')
+        except Exception as why:
+            str(why)
+            return None
 
     @classmethod
     def csv2order(cls, csv_file):
@@ -450,6 +453,8 @@ class PddOrder(Base):
 
                 shifouchoujianghuoshiyong=row['是否抽奖或0元试用'],
             )
+            if order['fahuoshijian'] is None:
+                continue
             order_list.append(order)
         return order_list
 
